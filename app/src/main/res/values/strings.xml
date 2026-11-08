@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ZERO PLAYER</string>
+
+    <string name="channel_playback_name">Playback</string>
+    <string name="channel_playback_description">Ongoing playback controls</string>
+
+    <string name="permission_title">Grant music access</string>
+    <string name="permission_body">ZERO PLAYER reads audio files stored on this device. Nothing leaves your phone — the app has no network access.</string>
+</resources>

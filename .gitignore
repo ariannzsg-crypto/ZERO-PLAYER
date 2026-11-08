@@ -1,0 +1,36 @@
+# Gradle / Android build output
+*.iml
+.gradle/
+build/
+app/build/
+captures/
+.externalNativeBuild/
+.cxx/
+release/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Local toolchain used only for verification on this machine
+.toolchain/
+local.properties
+sdk-path.txt
+
+# Signing material - never commit
+keystore.properties
+*.jks
+*.keystore
+*.p12
+
+# IDE
+.idea/
+*.hprof
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local release package (APK zip + git bundle for manual publishing)
+dist/
