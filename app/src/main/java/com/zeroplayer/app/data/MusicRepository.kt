@@ -16,8 +16,10 @@ import com.zeroplayer.app.data.model.Playlist
 import com.zeroplayer.app.data.model.SmartKind
 import com.zeroplayer.app.data.model.Song
 import com.zeroplayer.app.data.model.SongStat
+import com.zeroplayer.app.data.model.UNKNOWN_ARTIST
 import com.zeroplayer.app.data.model.toModel
 import com.zeroplayer.app.data.model.toSong
+import com.zeroplayer.app.net.AiClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -227,6 +229,9 @@ class MusicRepository(
             db.stats().prune()
             db.playlists().pruneTracks()
             prefs.lastScanAt = System.currentTimeMillis()
+            if (prefs.autoArtistPlaylists) {
+                runCatching { ArtistPlaylistSync(db).sync() }
+            }
         } catch (_: SecurityException) {
             // Permission revoked mid-scan; keep the previous cached library.
         } finally {
@@ -302,6 +307,36 @@ class MusicRepository(
 
     suspend fun reorderPlaylist(playlistId: Long, orderedSongIds: List<Long>) = withContext(Dispatchers.IO) {
         db.playlists().reorder(playlistId, orderedSongIds)
+    }
+
+    /** Rebuilds the one-playlist-per-artist set from the cached library. */
+    suspend fun syncArtistPlaylists(): ArtistSyncResult = withContext(Dispatchers.IO) {
+        ArtistPlaylistSync(db).sync()
+    }
+
+    /**
+     * Asks the assistant to name the singer of tracks whose tags carry no artist.
+     * Bounded so a single tap cannot burn a large amount of API credit.
+     */
+    suspend fun nameMissingArtists(
+        ai: AiClient,
+        limit: Int = 40,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+    ): Int = withContext(Dispatchers.IO) {
+        val rows = db.songs().rowsMissingArtist(UNKNOWN_ARTIST, limit)
+        onProgress(0, rows.size)
+        var done = 0
+        rows.forEach { row ->
+            val song = row.toSong()
+            val fileName = song.path.substringAfterLast('/').ifBlank { song.title }
+            val guess = runCatching { ai.guessArtist(song, fileName) }.getOrNull()
+            if (!guess.isNullOrBlank() && guess != song.artist) {
+                db.songs().upsertAll(listOf(row.copy(artist = guess)))
+            }
+            done++
+            onProgress(done, rows.size)
+        }
+        done
     }
 
     suspend fun allEqProfiles(): List<EqProfileEntity> = withContext(Dispatchers.IO) { db.eqProfiles().all() }

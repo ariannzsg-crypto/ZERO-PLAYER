@@ -69,7 +69,10 @@ fun PlaylistsScreen(library: LibraryData) {
     val bottomInset = LocalBottomInset.current
 
     val smartPlaylists = remember(library.playlists) { library.playlists.filter { it.isSmart } }
-    val userPlaylists = remember(library.playlists) { library.playlists.filter { !it.isSmart } }
+    val artistPlaylists = remember(library.playlists) { library.playlists.filter { it.isAuto } }
+    val userPlaylists = remember(library.playlists) {
+        library.playlists.filter { !it.isSmart && !it.isAuto }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -88,7 +91,10 @@ fun PlaylistsScreen(library: LibraryData) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Playlists", style = MaterialTheme.typography.displayMedium, color = Zero.TextPrimary)
                     Spacer(Modifier.height(3.dp))
-                    MicroLabel("${userPlaylists.size} yours · ${smartPlaylists.size} smart")
+                    MicroLabel(
+                        "${userPlaylists.size} yours · ${artistPlaylists.size} artists · " +
+                            "${smartPlaylists.size} smart",
+                    )
                 }
                 OutLinePlayRow(
                     icon = Icons.Rounded.Add,
@@ -107,6 +113,21 @@ fun PlaylistsScreen(library: LibraryData) {
             }
             items(smartPlaylists, key = { "smart_${it.id}" }) { playlist ->
                 SmartPlaylistRow(playlist = playlist, library = library) {
+                    nav.push(Dest.PlaylistDetail(playlist.id, playlist.name))
+                }
+            }
+        }
+
+        if (artistPlaylists.isNotEmpty()) {
+            item {
+                Spacer(Modifier.height(14.dp))
+                SectionHeader(
+                    title = "By artist",
+                    subtitle = "One playlist per singer, kept in sync with your tags",
+                )
+            }
+            items(artistPlaylists, key = { "artist_${it.id}" }) { playlist ->
+                UserPlaylistRow(playlist = playlist, library = library) {
                     nav.push(Dest.PlaylistDetail(playlist.id, playlist.name))
                 }
             }

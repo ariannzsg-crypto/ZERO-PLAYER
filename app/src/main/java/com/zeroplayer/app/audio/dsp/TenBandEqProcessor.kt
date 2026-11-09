@@ -96,7 +96,8 @@ class TenBandEqProcessor : BaseAudioProcessor() {
         val preamp = 10.0.pow(params.preampDb / 20.0).toFloat()
         val widen = if (params.virtualizer > 0) params.virtualizer / 1_000f * 0.85f else 0f
 
-        repeat(shortCount / channels) {
+        val frames = shortCount / channels
+        repeat(frames) {
             var left = source.get().toFloat() / 32_768f
             var right = if (mono) left else source.get().toFloat() / 32_768f
 
@@ -124,17 +125,21 @@ class TenBandEqProcessor : BaseAudioProcessor() {
         }
 
         inputBuffer.position(inputBuffer.limit())
-        outBuffer.flip()
+        // The samples were written through a short view, so the parent buffer's
+        // position never moved. Calling flip() here would publish an empty buffer
+        // and the track would play silently. Publish the byte count explicitly.
+        outBuffer.position(0)
+        outBuffer.limit(frames * channels * 2)
     }
 
     private fun applyParams(params: DspParams) {
         val gains = params.gainsDb
         for (channel in 0 until 2) {
             for (band in 0 until bandCount) {
-                val gain = gains.getOrElse(band) { 0f }
+                val gain = gains.getOrElse(band) { 0f }.takeIf { it.isFinite() } ?: 0f
                 filters[channel][band].setPeaking(sampleRate, DspParams.BANDS_HZ[band], Q, gain)
             }
-            val bassGain = params.bassBoost / 1_000f * 12f
+            val bassGain = (params.bassBoost / 1_000f * 12f).takeIf { it.isFinite() } ?: 0f
             bass[channel].setLowShelf(sampleRate, 105f, bassGain)
         }
     }
@@ -152,6 +157,7 @@ class TenBandEqProcessor : BaseAudioProcessor() {
     }
 
     private fun toPcm16(value: Float): Short {
+        if (!value.isFinite()) return 0
         val scaled = value * 32_767f
         return when {
             scaled > 32_767f -> 32_767

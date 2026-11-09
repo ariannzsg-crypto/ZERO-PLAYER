@@ -12,6 +12,12 @@ interface SongDao {
     @Query("SELECT * FROM songs ORDER BY title COLLATE NOCASE ASC")
     fun observeAll(): Flow<List<SongEntity>>
 
+    @Query("SELECT * FROM songs")
+    suspend fun allRows(): List<SongEntity>
+
+    @Query("SELECT * FROM songs WHERE artist = '' OR artist = :unknownArtist LIMIT :limit")
+    suspend fun rowsMissingArtist(unknownArtist: String, limit: Int): List<SongEntity>
+
     @Query("SELECT COUNT(*) FROM songs")
     suspend fun count(): Int
 
@@ -105,6 +111,9 @@ interface PlaylistDao {
 
     @Query("SELECT * FROM playlists WHERE id = :id")
     fun observePlaylist(id: Long): Flow<PlaylistEntity?>
+
+    @Query("SELECT * FROM playlists WHERE autoArtist IS NOT NULL")
+    suspend fun autoPlaylists(): List<PlaylistEntity>
 
     @Insert
     suspend fun insert(playlist: PlaylistEntity): Long

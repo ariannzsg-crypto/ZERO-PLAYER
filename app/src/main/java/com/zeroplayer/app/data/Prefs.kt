@@ -100,6 +100,25 @@ class Prefs(context: Context) {
         prefs.edit().remove("lyrics_$songId").apply()
     }
 
+    /* --------------------------- AI assistant -------------------------- */
+
+    var aiApiKey: String
+        get() = prefs.getString(KEY_AI_KEY, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_AI_KEY, value).apply()
+
+    var aiBaseUrl: String
+        get() = prefs.getString(KEY_AI_BASE, DEFAULT_AI_BASE) ?: DEFAULT_AI_BASE
+        set(value) = prefs.edit().putString(KEY_AI_BASE, value).apply()
+
+    var aiModel: String
+        get() = prefs.getString(KEY_AI_MODEL, DEFAULT_AI_MODEL) ?: DEFAULT_AI_MODEL
+        set(value) = prefs.edit().putString(KEY_AI_MODEL, value).apply()
+
+    /** Rebuild the one-playlist-per-artist set after every library scan. */
+    var autoArtistPlaylists: Boolean
+        get() = prefs.getBoolean(KEY_AI_ARTIST_PLAYLISTS, true)
+        set(value) = prefs.edit().putBoolean(KEY_AI_ARTIST_PLAYLISTS, value).apply()
+
     /* --------------------------- smart playlist --------------------------- */
 
     var recentSearches: List<String>
@@ -160,5 +179,12 @@ class Prefs(context: Context) {
         private const val KEY_EQ_PRESET = "eq_preset"
         private const val KEY_SEARCHES = "recent_searches"
         private const val KEY_SPEED = "speed"
+        private const val KEY_AI_KEY = "ai_api_key"
+        private const val KEY_AI_BASE = "ai_base_url"
+        private const val KEY_AI_MODEL = "ai_model"
+        private const val KEY_AI_ARTIST_PLAYLISTS = "ai_artist_playlists"
+
+        const val DEFAULT_AI_BASE = "https://api.z.ai/api/paas/v4"
+        const val DEFAULT_AI_MODEL = "glm-4-flash"
     }
 }

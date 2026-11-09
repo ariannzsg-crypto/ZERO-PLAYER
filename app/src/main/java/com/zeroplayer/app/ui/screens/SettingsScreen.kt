@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Refresh
@@ -97,7 +98,7 @@ fun SettingsScreen(library: LibraryData, playback: PlaybackState) {
             Column(modifier = Modifier.padding(horizontal = 22.dp)) {
                 Text("Settings", style = MaterialTheme.typography.displayMedium, color = Zero.TextPrimary)
                 Spacer(Modifier.height(4.dp))
-                MicroLabel("Offline · no account · no network")
+                MicroLabel("Offline · no account · optional AI")
                 Spacer(Modifier.height(20.dp))
             }
         }
@@ -210,6 +211,21 @@ fun SettingsScreen(library: LibraryData, playback: PlaybackState) {
         }
 
         item { Spacer(Modifier.height(10.dp)) }
+        item { SettingsSectionLabel("AI assist") }
+        item {
+            SettingsRow(
+                icon = Icons.Rounded.AutoAwesome,
+                title = "AI assistant",
+                subtitle = if (Graph.prefs.aiApiKey.isBlank()) {
+                    "Not configured · lyrics lookup and artist playlists"
+                } else {
+                    "On · ${Graph.prefs.aiModel}"
+                },
+                onClick = { nav.push(Dest.Ai) },
+            )
+        }
+
+        item { Spacer(Modifier.height(10.dp)) }
         item { SettingsSectionLabel("About") }
         item {
             SettingsRow(
@@ -225,8 +241,9 @@ fun SettingsScreen(library: LibraryData, playback: PlaybackState) {
                 ZeroDivider()
                 Spacer(Modifier.height(14.dp))
                 Text(
-                    text = "ZERO PLAYER plays audio stored on this device. It requests no network permission, " +
-                        "ships no trackers and stores playlists, favourites and statistics only in a local database.",
+                    text = "ZERO PLAYER plays audio stored on this device. Playlists, favourites and statistics " +
+                        "live only in a local database and there are no trackers. The network permission exists " +
+                        "solely for the optional AI assistant you configure yourself.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Zero.TextTertiary,
                 )

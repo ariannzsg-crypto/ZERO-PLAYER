@@ -34,13 +34,15 @@ data class SongStatEntity(
     val lastPlayedAt: Long = 0L,
 )
 
-@Entity(tableName = "playlists")
+@Entity(tableName = "playlists", indices = [Index("autoArtist")])
 data class PlaylistEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val name: String,
     val createdAt: Long,
     /** Non-null for smart playlists; see [com.zeroplayer.app.data.model.SmartKind]. */
     val smartKind: String? = null,
+    /** Non-null when the playlist is generated for this artist and kept in sync. */
+    val autoArtist: String? = null,
 )
 
 @Entity(

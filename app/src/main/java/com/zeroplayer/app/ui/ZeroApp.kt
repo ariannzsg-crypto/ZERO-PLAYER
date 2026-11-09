@@ -54,6 +54,7 @@ import com.zeroplayer.app.ui.nav.LocalBottomInset
 import com.zeroplayer.app.ui.nav.LocalNav
 import com.zeroplayer.app.ui.nav.NavActions
 import com.zeroplayer.app.ui.nav.Navigator
+import com.zeroplayer.app.ui.screens.AiScreen
 import com.zeroplayer.app.ui.screens.AlbumScreen
 import com.zeroplayer.app.ui.screens.ArtistScreen
 import com.zeroplayer.app.ui.screens.EqualizerScreen
@@ -163,6 +164,7 @@ fun ZeroApp() {
                     Dest.Playlists -> PlaylistsScreen(library = library)
                     Dest.Search -> SearchScreen(library = library)
                     Dest.Settings -> SettingsScreen(library = library, playback = playback)
+                    Dest.Ai -> AiScreen()
                     is Dest.Album -> AlbumScreen(albumId = dest.albumId, fallbackTitle = dest.title, library = library, playback = playback)
                     is Dest.Artist -> ArtistScreen(artistName = dest.name, library = library, playback = playback)
                     is Dest.Folder -> FolderScreen(path = dest.path, fallbackTitle = dest.title, library = library, playback = playback)

@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.Lyrics
@@ -61,6 +62,8 @@ fun LyricsScreen(playback: PlaybackState, library: LibraryData) {
 
     var lyrics by remember(playback.songId) { mutableStateOf<Lyrics?>(null) }
     var loading by remember(playback.songId) { mutableStateOf(true) }
+    var aiBusy by remember(playback.songId) { mutableStateOf(false) }
+    var aiStatus by remember(playback.songId) { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
 
     val importLauncher = rememberLauncherForActivityResult(
@@ -119,6 +122,31 @@ fun LyricsScreen(playback: PlaybackState, library: LibraryData) {
             MicroLabel("Lyrics")
             Spacer(Modifier.weight(1f))
             ZeroIconButton(
+                icon = Icons.Rounded.AutoAwesome,
+                contentDescription = "Find lyrics with AI",
+                onClick = {
+                    if (aiBusy) return@ZeroIconButton
+                    val currentSong = song
+                    when {
+                        currentSong == null -> aiStatus = "No track is loaded."
+                        !Graph.ai.isReady -> aiStatus = "Add an API key in Settings → AI first."
+                        else -> scope.launch {
+                            aiBusy = true
+                            aiStatus = "Asking the assistant…"
+                            val result = runCatching { Graph.ai.findLyrics(currentSong) }
+                            aiBusy = false
+                            result.onSuccess { text ->
+                                Graph.lyrics.saveImportedLyrics(currentSong.id, text, source = "ai")
+                                lyrics = Graph.lyrics.lyricsFor(currentSong)
+                                aiStatus = null
+                            }.onFailure {
+                                aiStatus = it.message ?: "The AI request failed."
+                            }
+                        }
+                    }
+                },
+            )
+            ZeroIconButton(
                 icon = Icons.Rounded.FileUpload,
                 contentDescription = "Import LRC",
                 onClick = { importLauncher.launch(arrayOf("text/*", "application/octet-stream")) },
@@ -137,6 +165,14 @@ fun LyricsScreen(playback: PlaybackState, library: LibraryData) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = Zero.TextTertiary,
             )
+            aiStatus?.let { status ->
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = status,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Zero.Silver,
+                )
+            }
             Spacer(Modifier.height(18.dp))
         }
 

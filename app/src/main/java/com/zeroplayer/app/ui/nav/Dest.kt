@@ -15,6 +15,7 @@ sealed interface Dest {
     data object Playlists : Dest { override val key = "playlists" }
     data object Search : Dest { override val key = "search" }
     data object Settings : Dest { override val key = "settings" }
+    data object Ai : Dest { override val key = "ai" }
 
     data class Album(val albumId: Long, val title: String) : Dest {
         override val key get() = "album_$albumId"

@@ -82,8 +82,12 @@ data class Playlist(
     val trackCount: Int,
     val createdAt: Long,
     val smartKind: SmartKind?,
+    val autoArtist: String? = null,
 ) {
     val isSmart: Boolean get() = smartKind != null
+
+    /** True for playlists generated and kept in sync from the artist tags. */
+    val isAuto: Boolean get() = autoArtist != null
 }
 
 enum class SmartKind(val key: String, val label: String, val description: String) {
@@ -106,6 +110,7 @@ fun PlaylistEntity.toModel(count: Int): Playlist = Playlist(
     trackCount = count,
     createdAt = createdAt,
     smartKind = SmartKind.from(smartKind),
+    autoArtist = autoArtist,
 )
 
 data class SongStat(val songId: Long, val playCount: Int, val lastPlayedAt: Long)

@@ -2,14 +2,16 @@ package com.zeroplayer.app.playback
 
 import android.content.ComponentName
 import android.content.Context
-import android.os.Bundle
+import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.zeroplayer.app.core.Graph
 import com.zeroplayer.app.data.model.Song
+import com.zeroplayer.app.widget.ZeroWidgetBridge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -41,6 +43,8 @@ data class PlaybackState(
     val queue: List<QueueEntry> = emptyList(),
     val index: Int = 0,
     val speed: Float = 1f,
+    /** Non-null when the player reported a real error; shown as-is to the user. */
+    val error: String? = null,
 ) {
     val hasTrack: Boolean get() = songId > 0
     val progress: Float
@@ -48,15 +52,24 @@ data class PlaybackState(
 }
 
 /**
- * Single MediaController bridge between Compose UI and [PlaybackService].
- * State is mirrored into a StateFlow so every screen can observe playback
- * without touching the player directly.
+ * Single MediaController bridge between Compose UI, the home screen widget and
+ * [PlaybackService]. State is mirrored into a StateFlow so every screen can
+ * observe playback without touching the player directly.
+ *
+ * Commands issued before the controller finishes connecting are queued and
+ * replayed, so a tap on the very first frame (or from a widget while the
+ * process is cold) never gets dropped.
  */
 object PlaybackController {
 
+    private const val TAG = "ZeroPlayback"
+
     private var controller: MediaController? = null
+    private var connecting = false
+    private val pending = ArrayDeque<(MediaController) -> Unit>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var ticker: Job? = null
+    private var lastError: String? = null
 
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
@@ -64,18 +77,26 @@ object PlaybackController {
     val isConnected: Boolean get() = controller != null
 
     fun connect(context: Context) {
-        if (controller != null) return
-        val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
-        val future = MediaController.Builder(context, token).buildAsync()
+        if (controller != null || connecting) return
+        connecting = true
+        val app = context.applicationContext
+        val token = SessionToken(app, ComponentName(app, PlaybackService::class.java))
+        val future = MediaController.Builder(app, token).buildAsync()
         future.addListener({
-            runCatching { future.get() }.onSuccess { mediaController ->
-                controller = mediaController
-                mediaController.addListener(listener)
-                refresh()
-                startTicker()
-                restoreLastSession()
-            }
-        }, ContextCompat.getMainExecutor(context))
+            connecting = false
+            runCatching { future.get() }
+                .onSuccess { mediaController ->
+                    controller = mediaController
+                    mediaController.addListener(listener)
+                    refresh()
+                    startTicker()
+                    restoreLastSession()
+                    flushPending()
+                }
+                .onFailure { error ->
+                    Log.w(TAG, "Could not connect to the playback service", error)
+                }
+        }, ContextCompat.getMainExecutor(app))
     }
 
     fun release() {
@@ -84,11 +105,44 @@ object PlaybackController {
         controller?.removeListener(listener)
         controller?.release()
         controller = null
+        connecting = false
+        pending.clear()
         _state.value = PlaybackState()
+    }
+
+    private fun flushPending() {
+        val player = controller ?: return
+        while (pending.isNotEmpty()) {
+            runCatching { pending.removeFirst().invoke(player) }
+        }
+        refresh()
+    }
+
+    /** Runs [action] now, or as soon as the controller is ready. */
+    private fun withPlayer(action: (MediaController) -> Unit) {
+        val player = controller
+        if (player == null) {
+            runCatching { connect(Graph.context) }
+            pending.addLast(action)
+            return
+        }
+        runCatching { action(player) }
+        refresh()
     }
 
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
+            refresh()
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            lastError = error.errorCodeName + ": " + error.message.orEmpty()
+            Log.e(TAG, "Playback failed: ${error.errorCodeName}", error)
+            refresh()
+        }
+
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            lastError = null
             refresh()
         }
     }
@@ -112,7 +166,7 @@ object PlaybackController {
                 add(mediaItem.toQueueEntry(if (index == player.currentMediaItemIndex) player.duration.coerceAtLeast(0) else 0L))
             }
         }
-        _state.value = PlaybackState(
+        val snapshot = PlaybackState(
             connected = true,
             songId = item?.songId() ?: -1L,
             title = item?.mediaMetadata?.title?.toString().orEmpty(),
@@ -131,21 +185,25 @@ object PlaybackController {
             queue = queue,
             index = player.currentMediaItemIndex,
             speed = player.playbackParameters.speed,
+            error = lastError,
         )
+        _state.value = snapshot
+        runCatching { ZeroWidgetBridge.update(Graph.context, snapshot) }
     }
 
     /* ------------------------------- commands ------------------------------ */
 
     fun playSongs(songs: List<Song>, startIndex: Int, shuffle: Boolean = false) {
-        val player = controller ?: return
         if (songs.isEmpty()) return
-        val items = songs.map { it.toMediaItem() }
-        val index = startIndex.coerceIn(0, items.lastIndex)
-        player.shuffleModeEnabled = shuffle
-        player.setMediaItems(items, index, 0L)
-        player.prepare()
-        player.play()
-        refresh()
+        withPlayer { player ->
+            lastError = null
+            val items = songs.map { it.toMediaItem() }
+            val index = startIndex.coerceIn(0, items.lastIndex)
+            player.shuffleModeEnabled = shuffle
+            player.setMediaItems(items, index, 0L)
+            player.prepare()
+            player.play()
+        }
     }
 
     fun playSong(song: Song, context: List<Song> = listOf(song)) {
@@ -153,126 +211,90 @@ object PlaybackController {
         playSongs(if (context.isEmpty()) listOf(song) else context, index)
     }
 
-    fun togglePlayPause() {
-        val player = controller ?: return
-        if (player.isPlaying) player.pause() else {
+    fun togglePlayPause() = withPlayer { player ->
+        if (player.isPlaying) {
+            player.pause()
+        } else {
             if (player.playbackState == Player.STATE_IDLE) player.prepare()
             player.play()
         }
-        refresh()
     }
 
-    fun play() {
-        controller?.play()
-        refresh()
-    }
+    fun play() = withPlayer { it.play() }
 
-    fun pause() {
-        controller?.pause()
-        refresh()
-    }
+    fun pause() = withPlayer { it.pause() }
 
-    fun next() {
-        controller?.seekToNextMediaItem()
-        refresh()
-    }
+    fun next() = withPlayer { it.seekToNextMediaItem() }
 
-    fun previous() {
-        val player = controller ?: return
+    fun previous() = withPlayer { player ->
         if (player.currentPosition > 4_000) player.seekTo(0) else player.seekToPreviousMediaItem()
-        refresh()
     }
 
-    fun seekTo(positionMs: Long) {
-        controller?.seekTo(positionMs.coerceAtLeast(0))
-        refresh()
-    }
+    fun seekTo(positionMs: Long) = withPlayer { it.seekTo(positionMs.coerceAtLeast(0)) }
 
-    fun seekBy(deltaMs: Long) {
-        val player = controller ?: return
+    fun seekBy(deltaMs: Long) = withPlayer { player ->
         val target = (player.currentPosition + deltaMs).coerceIn(0, player.duration.coerceAtLeast(0))
         player.seekTo(target)
-        refresh()
     }
 
-    fun seekToQueueItem(index: Int) {
-        val player = controller ?: return
+    fun seekToQueueItem(index: Int) = withPlayer { player ->
         if (index in 0 until player.mediaItemCount) player.seekTo(index, 0L)
-        refresh()
     }
 
-    fun toggleShuffle() {
-        val player = controller ?: return
+    fun toggleShuffle() = withPlayer { player ->
         player.shuffleModeEnabled = !player.shuffleModeEnabled
-        refresh()
     }
 
-    fun cycleRepeat() {
-        val player = controller ?: return
+    fun cycleRepeat() = withPlayer { player ->
         player.repeatMode = when (player.repeatMode) {
             Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
             Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
             else -> Player.REPEAT_MODE_OFF
         }
-        refresh()
     }
 
     fun setSpeed(speed: Float) {
-        val player = controller ?: return
-        player.setPlaybackSpeed(speed.coerceIn(0.5f, 2f))
-        Graph.prefs.playbackSpeed = speed
-        refresh()
+        val clamped = speed.coerceIn(0.5f, 2f)
+        Graph.prefs.playbackSpeed = clamped
+        withPlayer { it.setPlaybackSpeed(clamped) }
     }
 
-    fun addToQueueNext(song: Song) {
-        val player = controller ?: return
+    fun addToQueueNext(song: Song) = withPlayer { player ->
         player.addMediaItem(player.currentMediaItemIndex.coerceAtLeast(0) + 1, song.toMediaItem())
-        refresh()
     }
 
-    fun addToQueueEnd(song: Song) {
-        val player = controller ?: return
+    fun addToQueueEnd(song: Song) = withPlayer { player ->
         player.addMediaItem(song.toMediaItem())
-        refresh()
     }
 
     fun playNext(songs: List<Song>) {
-        val player = controller ?: return
         if (songs.isEmpty()) return
-        val items = songs.map { it.toMediaItem() }
-        player.addMediaItems(player.currentMediaItemIndex.coerceAtLeast(0) + 1, items)
-        refresh()
+        withPlayer { player ->
+            player.addMediaItems(
+                player.currentMediaItemIndex.coerceAtLeast(0) + 1,
+                songs.map { it.toMediaItem() },
+            )
+        }
     }
 
-    fun clearQueue() {
-        controller?.clearMediaItems()
-        refresh()
-    }
+    fun clearQueue() = withPlayer { it.clearMediaItems() }
 
-    fun removeQueueItem(index: Int) {
-        val player = controller ?: return
+    fun removeQueueItem(index: Int) = withPlayer { player ->
         if (index in 0 until player.mediaItemCount) player.removeMediaItem(index)
-        refresh()
     }
 
-    fun moveQueueItem(from: Int, to: Int) {
-        val player = controller ?: return
+    fun moveQueueItem(from: Int, to: Int) = withPlayer { player ->
         if (from in 0 until player.mediaItemCount && to in 0 until player.mediaItemCount) {
             player.moveMediaItem(from, to)
         }
-        refresh()
     }
 
-    fun stop() {
-        controller?.stop()
-        refresh()
-    }
+    fun stop() = withPlayer { it.stop() }
 
-    fun setSleepTimer(minutes: Int) {
-        val player = controller ?: return
+    fun setSleepTimer(minutes: Int) = withPlayer { player ->
         val endAt = if (minutes <= 0) 0L else System.currentTimeMillis() + minutes * 60_000L
         Graph.prefs.sleepTimerEndAt = endAt
-        val args = Bundle().apply { putLong(PlaybackService.ARG_SLEEP_END_AT, endAt) }
+        val args = android.os.Bundle().apply { putLong(PlaybackService.ARG_SLEEP_END_AT, endAt) }
         player.sendCustomCommand(PlaybackService.SLEEP_COMMAND, args)
     }
 

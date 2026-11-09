@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [
@@ -15,7 +17,7 @@ import androidx.room.RoomDatabase
         EqProfileEntity::class,
         LyricsEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -27,8 +29,17 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun lyrics(): LyricsDao
 
     companion object {
+        /** Adds the artist-playlist column used by the optional AI assist. */
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE playlists ADD COLUMN autoArtist TEXT")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_playlists_autoArtist ON playlists(autoArtist)")
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "zero-player.db")
+                .addMigrations(MIGRATION_1_2)
                 .fallbackToDestructiveMigration()
                 .build()
     }
