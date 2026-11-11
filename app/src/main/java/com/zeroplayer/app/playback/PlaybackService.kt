@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.DefaultMediaNotificationProvider
@@ -18,6 +19,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.zeroplayer.app.MainActivity
 import com.zeroplayer.app.R
 import com.zeroplayer.app.audio.dsp.AudioTap
+import com.zeroplayer.app.core.DiagLog
 import com.zeroplayer.app.core.Graph
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +47,7 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         Graph.init(this)
+        DiagLog.d("SVC", "onCreate: building ExoPlayer with the EQ renderers factory")
 
         val renderersFactory = EqRenderersFactory(this)
         val exoPlayer = ExoPlayer.Builder(this, renderersFactory)
@@ -61,6 +64,11 @@ class PlaybackService : MediaSessionService() {
             .setSeekForwardIncrementMs(10_000)
             .build()
 
+        DiagLog.d(
+            "SVC",
+            "player built: audioSession=${exoPlayer.audioSessionId} " +
+                "shuffle=${Graph.prefs.shuffleEnabled} repeat=${Graph.prefs.repeatMode}",
+        )
         exoPlayer.shuffleModeEnabled = Graph.prefs.shuffleEnabled
         exoPlayer.repeatMode = Graph.prefs.repeatMode
         exoPlayer.addListener(playerListener)
@@ -80,6 +88,7 @@ class PlaybackService : MediaSessionService() {
 
         player = exoPlayer
         AudioTap.active = true
+        DiagLog.d("SVC", "media session ready")
     }
 
     private fun openAppIntent(): PendingIntent {
@@ -94,7 +103,10 @@ class PlaybackService : MediaSessionService() {
         )
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
+        DiagLog.d("SVC", "onGetSession for ${controllerInfo.packageName} uid=${controllerInfo.uid}")
+        return session
+    }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val activePlayer = player
@@ -105,6 +117,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        DiagLog.d("SVC", "onDestroy")
         persistQueue()
         sleepJob?.cancel()
         AudioTap.active = false
@@ -144,7 +157,21 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
+            DiagLog.d(
+                "SVC",
+                "playbackState=$playbackState items=${player?.mediaItemCount} " +
+                    "playWhenReady=${player?.playWhenReady} position=${player?.currentPosition}",
+            )
             if (playbackState == Player.STATE_ENDED) persistQueue()
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            DiagLog.e(
+                "SVC",
+                "player error ${error.errorCodeName} (${error.errorCode}) uri=" +
+                    "${player?.currentMediaItem?.localConfiguration?.uri}",
+                error,
+            )
         }
     }
 
@@ -189,6 +216,7 @@ class PlaybackService : MediaSessionService() {
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
         ): MediaSession.ConnectionResult {
+            DiagLog.d("SVC", "onConnect from ${controller.packageName} uid=${controller.uid}")
             val available = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
                 .buildUpon()
                 .add(SLEEP_COMMAND)
@@ -202,6 +230,13 @@ class PlaybackService : MediaSessionService() {
                 .add(Player.COMMAND_CHANGE_MEDIA_ITEMS)
                 .add(Player.COMMAND_SET_MEDIA_ITEM)
                 .build()
+            DiagLog.d(
+                "SVC",
+                "granted: changeQueue=${playerCommands.contains(Player.COMMAND_CHANGE_MEDIA_ITEMS)} " +
+                    "setMediaItem=${playerCommands.contains(Player.COMMAND_SET_MEDIA_ITEM)} " +
+                    "playPause=${playerCommands.contains(Player.COMMAND_PLAY_PAUSE)} " +
+                    "prepare=${playerCommands.contains(Player.COMMAND_PREPARE)}",
+            )
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(available)
                 .setAvailablePlayerCommands(playerCommands)

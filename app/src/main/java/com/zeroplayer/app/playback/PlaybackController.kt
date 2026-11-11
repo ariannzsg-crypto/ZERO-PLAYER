@@ -2,13 +2,13 @@ package com.zeroplayer.app.playback
 
 import android.content.ComponentName
 import android.content.Context
-import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.zeroplayer.app.core.DiagLog
 import com.zeroplayer.app.core.Graph
 import com.zeroplayer.app.data.model.Song
 import com.zeroplayer.app.widget.ZeroWidgetBridge
@@ -62,8 +62,6 @@ data class PlaybackState(
  */
 object PlaybackController {
 
-    private const val TAG = "ZeroPlayback"
-
     private var controller: MediaController? = null
     private var connecting = false
     private val pending = ArrayDeque<(MediaController) -> Unit>()
@@ -77,8 +75,12 @@ object PlaybackController {
     val isConnected: Boolean get() = controller != null
 
     fun connect(context: Context) {
-        if (controller != null || connecting) return
+        if (controller != null || connecting) {
+            DiagLog.d("CTRL", "connect ignored: connected=${controller != null} connecting=$connecting")
+            return
+        }
         connecting = true
+        DiagLog.d("CTRL", "connect: building MediaController for PlaybackService")
         val app = context.applicationContext
         val token = SessionToken(app, ComponentName(app, PlaybackService::class.java))
         val future = MediaController.Builder(app, token).buildAsync()
@@ -88,13 +90,24 @@ object PlaybackController {
                 .onSuccess { mediaController ->
                     controller = mediaController
                     mediaController.addListener(listener)
+                    val commands = mediaController.availableCommands
+                    DiagLog.d(
+                        "CTRL",
+                        "connected: items=${mediaController.mediaItemCount} " +
+                            "state=${mediaController.playbackState} " +
+                            "canChangeQueue=${commands.contains(Player.COMMAND_CHANGE_MEDIA_ITEMS)} " +
+                            "canPlayPause=${commands.contains(Player.COMMAND_PLAY_PAUSE)} " +
+                            "canPrepare=${commands.contains(Player.COMMAND_PREPARE)} " +
+                            "canGetTimeline=${commands.contains(Player.COMMAND_GET_TIMELINE)} " +
+                            "pendingCommands=${pending.size}",
+                    )
                     refresh()
                     startTicker()
                     restoreLastSession()
                     flushPending()
                 }
                 .onFailure { error ->
-                    Log.w(TAG, "Could not connect to the playback service", error)
+                    DiagLog.e("CTRL", "connect failed: the media session could not be bound", error)
                 }
         }, ContextCompat.getMainExecutor(app))
     }
@@ -122,29 +135,65 @@ object PlaybackController {
     private fun withPlayer(action: (MediaController) -> Unit) {
         val player = controller
         if (player == null) {
+            DiagLog.d("CTRL", "no controller yet: queueing command (pending=${pending.size + 1})")
             runCatching { connect(Graph.context) }
             pending.addLast(action)
             return
         }
         runCatching { action(player) }
+            .onFailure { DiagLog.e("CTRL", "command threw", it) }
+        DiagLog.d(
+            "CTRL",
+            "command done: items=${player.mediaItemCount} state=${player.playbackState} " +
+                "playWhenReady=${player.playWhenReady} isPlaying=${player.isPlaying}",
+        )
         refresh()
     }
 
+    private var lastEventSignature = ""
+
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
+            val signature = "${player.playbackState}|${player.isPlaying}|${player.playWhenReady}|" +
+                "${player.mediaItemCount}|${player.currentMediaItemIndex}|" +
+                "${player.playbackSuppressionReason}|${player.playerError != null}"
+            if (signature != lastEventSignature) {
+                lastEventSignature = signature
+                DiagLog.d(
+                    "CTRL",
+                    "event: state=${stateName(player.playbackState)} " +
+                        "playWhenReady=${player.playWhenReady} isPlaying=${player.isPlaying} " +
+                        "items=${player.mediaItemCount} index=${player.currentMediaItemIndex} " +
+                        "buffered=${player.bufferedPosition}ms suppressed=${player.playbackSuppressionReason}",
+                )
+            }
             refresh()
         }
 
         override fun onPlayerError(error: PlaybackException) {
             lastError = error.errorCodeName + ": " + error.message.orEmpty()
-            Log.e(TAG, "Playback failed: ${error.errorCodeName}", error)
+            DiagLog.e(
+                "CTRL",
+                "player error ${error.errorCodeName} (${error.errorCode}) uri=" +
+                    "${controller?.currentMediaItem?.localConfiguration?.uri}",
+                error,
+            )
             refresh()
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             lastError = null
+            DiagLog.d("CTRL", "track change reason=$reason id=${mediaItem?.songId()}")
             refresh()
         }
+    }
+
+    private fun stateName(state: Int): String = when (state) {
+        Player.STATE_IDLE -> "IDLE"
+        Player.STATE_BUFFERING -> "BUFFERING"
+        Player.STATE_READY -> "READY"
+        Player.STATE_ENDED -> "ENDED"
+        else -> "STATE_$state"
     }
 
     private fun startTicker() {
@@ -194,7 +243,15 @@ object PlaybackController {
     /* ------------------------------- commands ------------------------------ */
 
     fun playSongs(songs: List<Song>, startIndex: Int, shuffle: Boolean = false) {
-        if (songs.isEmpty()) return
+        if (songs.isEmpty()) {
+            DiagLog.d("CTRL", "playSongs ignored: the song list is empty")
+            return
+        }
+        DiagLog.d(
+            "CTRL",
+            "playSongs: count=${songs.size} start=$startIndex shuffle=$shuffle " +
+                "connected=${controller != null}",
+        )
         withPlayer { player ->
             lastError = null
             val items = songs.map { it.toMediaItem() }
@@ -203,6 +260,12 @@ object PlaybackController {
             player.setMediaItems(items, index, 0L)
             player.prepare()
             player.play()
+            DiagLog.d(
+                "CTRL",
+                "queued: items=${player.mediaItemCount} index=${player.currentMediaItemIndex} " +
+                    "uri=${player.currentMediaItem?.localConfiguration?.uri} " +
+                    "state=${player.playbackState} playWhenReady=${player.playWhenReady}",
+            )
         }
     }
 
@@ -306,6 +369,7 @@ object PlaybackController {
         if (ids.isEmpty()) return
         scope.launch {
             val songs = Graph.music.songsByIds(ids)
+            DiagLog.d("CTRL", "restore queue: saved=${ids.size} found=${songs.size}")
             if (songs.isEmpty() || controller == null) return@launch
             val index = Graph.prefs.lastQueueIndex.coerceIn(0, songs.lastIndex)
             player.setMediaItems(songs.map { it.toMediaItem() }, index, Graph.prefs.lastPositionMs)

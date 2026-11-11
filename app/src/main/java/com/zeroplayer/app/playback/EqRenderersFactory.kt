@@ -7,6 +7,7 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.SilenceSkippingAudioProcessor
 import com.zeroplayer.app.audio.dsp.TenBandEqProcessor
+import com.zeroplayer.app.core.DiagLog
 
 /**
  * Wires the ZERO PLAYER DSP chain (ten band EQ -> bass boost -> stereo widener)
@@ -24,6 +25,11 @@ class EqRenderersFactory(context: Context) : DefaultRenderersFactory(context) {
             arrayOf(TenBandEqProcessor()),
             SilenceSkippingAudioProcessor(),
             SonicAudioProcessor(),
+        )
+        DiagLog.d(
+            "EQ",
+            "audio sink built: floatOutput=$enableFloatOutput " +
+                "playbackParams=$enableAudioTrackPlaybackParams chain=eq,silence-skip,sonic",
         )
         return DefaultAudioSink.Builder(context)
             .setAudioProcessorChain(chain)

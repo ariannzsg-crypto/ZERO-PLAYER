@@ -40,9 +40,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.zeroplayer.app.BuildConfig
 import com.zeroplayer.app.audio.EqualizerController
+import com.zeroplayer.app.core.DiagLog
 import com.zeroplayer.app.core.Graph
 import com.zeroplayer.app.data.LibraryData
 import com.zeroplayer.app.playback.PlaybackController
@@ -66,6 +69,9 @@ fun SettingsScreen(library: LibraryData, playback: PlaybackState) {
     val eqState by EqualizerController.state.collectAsStateWithLifecycle()
     var speed by remember { mutableStateOf(playback.speed) }
     var sleepMinutes by remember { mutableIntStateOf(0) }
+    var logText by remember { mutableStateOf(DiagLog.dump()) }
+    var copied by remember { mutableStateOf(false) }
+    val clipboard = LocalClipboardManager.current
     val bottomInset = LocalBottomInset.current
 
     LazyColumn(
@@ -223,6 +229,75 @@ fun SettingsScreen(library: LibraryData, playback: PlaybackState) {
                 },
                 onClick = { nav.push(Dest.Ai) },
             )
+        }
+
+        item { Spacer(Modifier.height(10.dp)) }
+        item { SettingsSectionLabel("Diagnostics") }
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 6.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Zero.Surface1)
+                    .padding(12.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = if (playback.connected) "Player connected" else "Player not connected",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Zero.TextPrimary,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        text = "${playback.positionMs / 1000}s / ${playback.durationMs / 1000}s · " +
+                            "queue ${playback.queue.size}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Zero.TextTertiary,
+                    )
+                }
+                playback.error?.let { error ->
+                    Spacer(Modifier.height(6.dp))
+                    Text(error, style = MaterialTheme.typography.bodySmall, color = Zero.Silver)
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ChoiceChip(
+                        label = "Copy",
+                        selected = copied,
+                        onClick = {
+                            clipboard.setText(AnnotatedString(DiagLog.dump()))
+                            copied = true
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ChoiceChip(
+                        label = "Refresh",
+                        selected = false,
+                        onClick = {
+                            logText = DiagLog.dump()
+                            copied = false
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ChoiceChip(
+                        label = "Clear",
+                        selected = false,
+                        onClick = {
+                            DiagLog.clear()
+                            logText = DiagLog.dump()
+                            copied = false
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = logText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Zero.TextTertiary,
+                )
+            }
         }
 
         item { Spacer(Modifier.height(10.dp)) }

@@ -178,7 +178,7 @@ State flows one way: MediaStore → Room → repository `StateFlow` → Compose.
 Alternatively install with adb:
 
 ```bash
-adb install -r ZERO-PLAYER-1.1.1-release.apk
+adb install -r ZERO-PLAYER-1.1.2-release.apk
 ```
 
 ---
@@ -234,7 +234,8 @@ artifacts, and publishes a GitHub Release with the release APK whenever a `v*` t
 
 | Version | File | Notes |
 | --- | --- | --- |
-| **1.1.1** | `ZERO-PLAYER-1.1.1-release.apk` | Fixes queued playback (songs did not start), adds the Gemini assistant |
+| **1.1.2** | `ZERO-PLAYER-1.1.2-release.apk` | Playback diagnostics: full log (Settings → Diagnostics, or `adb logcat -s ZeroPlayer`) |
+| 1.1.1 | `ZERO-PLAYER-1.1.1-release.apk` | Fixes queued playback (songs did not start), adds the Gemini assistant |
 | 1.1.0 | `ZERO-PLAYER-1.1.0-release.apk` | AI assist, artist playlists, home screen widget |
 | 1.0.0 | `ZERO-PLAYER-1.0.0-release.apk` | First release |
 

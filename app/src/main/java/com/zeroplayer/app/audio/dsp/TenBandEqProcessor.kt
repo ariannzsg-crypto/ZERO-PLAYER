@@ -3,6 +3,7 @@ package com.zeroplayer.app.audio.dsp
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.BaseAudioProcessor
+import com.zeroplayer.app.core.DiagLog
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.pow
@@ -57,6 +58,7 @@ class TenBandEqProcessor : BaseAudioProcessor() {
     private var sampleRate = 44_100
     private var channels = 2
     private var passthrough = true
+    private var loggedBypass = false
 
     override fun onConfigure(inputAudioFormat: androidx.media3.common.audio.AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
         val format = inputAudioFormat
@@ -66,12 +68,22 @@ class TenBandEqProcessor : BaseAudioProcessor() {
         appliedVersion = -1L
         filters.forEach { channel -> channel.forEach { it.reset() } }
         bass.forEach { it.reset() }
+        loggedBypass = false
+        DiagLog.d(
+            "EQ",
+            "configure: encoding=${format.encoding} channels=${format.channelCount} " +
+                "rate=${format.sampleRate} passthrough=$passthrough",
+        )
         return format
     }
 
     override fun queueInput(inputBuffer: ByteBuffer) {
         val params = EqDsp.params
         if (passthrough || !params.enabled) {
+            if (!loggedBypass) {
+                loggedBypass = true
+                DiagLog.d("EQ", "bypass: passthrough=$passthrough enabled=${params.enabled}")
+            }
             val out = replaceOutputBuffer(inputBuffer.remaining())
             out.put(inputBuffer)
             out.flip()
@@ -82,6 +94,11 @@ class TenBandEqProcessor : BaseAudioProcessor() {
         if (params.version != appliedVersion) {
             applyParams(params)
             appliedVersion = params.version
+            DiagLog.d(
+                "EQ",
+                "params applied: version=${params.version} preamp=${params.preampDb} " +
+                    "bass=${params.bassBoost} widen=${params.virtualizer}",
+            )
         }
 
         val shortCount = inputBuffer.remaining() / 2
