@@ -38,6 +38,17 @@ object DiagLog {
         }
     }
 
+    /** "CauseClass: message <- cause @ Frame.method:line" for a bug report. */
+    fun describe(error: Throwable): String {
+        val chain = generateSequence(error) { it.cause }
+            .take(4)
+            .joinToString(" <- ") { "${it.javaClass.simpleName}: ${it.message}" }
+        val frames = error.stackTrace
+            .take(6)
+            .joinToString(" | ") { "${it.className.substringAfterLast('.')}.${it.methodName}:${it.lineNumber}" }
+        return "$chain @ $frames"
+    }
+
     fun dump(): String = synchronized(lines) {
         if (lines.isEmpty()) "No events yet." else lines.joinToString("\n")
     }

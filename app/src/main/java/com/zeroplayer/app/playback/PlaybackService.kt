@@ -9,6 +9,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -19,6 +20,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.zeroplayer.app.MainActivity
 import com.zeroplayer.app.R
 import com.zeroplayer.app.audio.dsp.AudioTap
+import com.zeroplayer.app.audio.dsp.EqDsp
 import com.zeroplayer.app.core.DiagLog
 import com.zeroplayer.app.core.Graph
 import kotlinx.coroutines.CoroutineScope
@@ -72,6 +74,18 @@ class PlaybackService : MediaSessionService() {
         exoPlayer.shuffleModeEnabled = Graph.prefs.shuffleEnabled
         exoPlayer.repeatMode = Graph.prefs.repeatMode
         exoPlayer.addListener(playerListener)
+        exoPlayer.addAnalyticsListener(object : AnalyticsListener {
+            override fun onAudioSinkError(
+                eventTime: AnalyticsListener.EventTime,
+                audioSinkError: Exception,
+            ) {
+                DiagLog.e(
+                    "SND",
+                    "audio sink error: ${DiagLog.describe(audioSinkError)}",
+                    audioSinkError,
+                )
+            }
+        })
 
         val notificationProvider = DefaultMediaNotificationProvider.Builder(this)
             .setChannelId(CHANNEL_ID)
@@ -168,10 +182,27 @@ class PlaybackService : MediaSessionService() {
         override fun onPlayerError(error: PlaybackException) {
             DiagLog.e(
                 "SVC",
-                "player error ${error.errorCodeName} (${error.errorCode}) uri=" +
-                    "${player?.currentMediaItem?.localConfiguration?.uri}",
+                "player error ${error.errorCodeName} (${error.errorCode}) " +
+                    "uri=${player?.currentMediaItem?.localConfiguration?.uri} " +
+                    "detail=${DiagLog.describe(error)}",
                 error,
             )
+            val activePlayer = player ?: return
+            if (error.errorCode != PlaybackException.ERROR_CODE_FAILED_RUNTIME_CHECK) return
+            if (EqDsp.hardBypass) {
+                DiagLog.d("SVC", "runtime check failed again with the DSP already bypassed")
+                return
+            }
+            val index = activePlayer.currentMediaItemIndex
+            val position = activePlayer.currentPosition
+            EqDsp.hardBypass = true
+            DiagLog.d(
+                "SVC",
+                "retrying item=$index position=${position}ms without the DSP chain",
+            )
+            activePlayer.prepare()
+            activePlayer.seekTo(index, position)
+            activePlayer.play()
         }
     }
 
