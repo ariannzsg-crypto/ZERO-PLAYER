@@ -1,6 +1,7 @@
 package com.zeroplayer.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,6 +40,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.zeroplayer.app.core.Graph
+import com.zeroplayer.app.net.AiProvider
 import com.zeroplayer.app.ui.components.MicroLabel
 import com.zeroplayer.app.ui.components.OutLinePlayRow
 import com.zeroplayer.app.ui.components.SectionHeader
@@ -49,7 +52,7 @@ import com.zeroplayer.app.ui.theme.Zero
 import kotlinx.coroutines.launch
 
 /**
- * Optional AI assist: an OpenAI-compatible endpoint, the artist playlist
+ * Optional AI assist: Gemini or any OpenAI-compatible endpoint, the artist playlist
  * builder and the "name unknown artists" pass. Everything is manual and
  * reversible; nothing runs until the user opens this screen.
  */
@@ -63,6 +66,7 @@ fun AiScreen() {
     var apiKey by remember { mutableStateOf(prefs.aiApiKey) }
     var baseUrl by remember { mutableStateOf(prefs.aiBaseUrl) }
     var model by remember { mutableStateOf(prefs.aiModel) }
+    var providerKey by remember { mutableStateOf(prefs.aiProviderKey) }
     var autoArtists by remember { mutableStateOf(prefs.autoArtistPlaylists) }
 
     var testing by remember { mutableStateOf(false) }
@@ -113,7 +117,45 @@ fun AiScreen() {
             }
         }
 
-        item { SectionHeader(title = "Assistant", subtitle = "Any OpenAI-compatible endpoint") }
+        item { SectionHeader(title = "Assistant", subtitle = "Gemini or any OpenAI-compatible endpoint") }
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ProviderPill(
+                    label = "Gemini",
+                    selected = providerKey == AiProvider.GEMINI.key,
+                    onClick = {
+                        providerKey = AiProvider.GEMINI.key
+                        prefs.aiProviderKey = providerKey
+                        baseUrl = AiProvider.GEMINI.defaultBaseUrl
+                        model = AiProvider.GEMINI.defaultModel
+                        prefs.aiBaseUrl = baseUrl
+                        prefs.aiModel = model
+                        testOk = false
+                        testMessage = null
+                    },
+                )
+                Spacer(Modifier.width(8.dp))
+                ProviderPill(
+                    label = "OpenAI-compatible",
+                    selected = providerKey == AiProvider.OPENAI.key,
+                    onClick = {
+                        providerKey = AiProvider.OPENAI.key
+                        prefs.aiProviderKey = providerKey
+                        baseUrl = AiProvider.OPENAI.defaultBaseUrl
+                        model = AiProvider.OPENAI.defaultModel
+                        prefs.aiBaseUrl = baseUrl
+                        prefs.aiModel = model
+                        testOk = false
+                        testMessage = null
+                    },
+                )
+            }
+        }
         item {
             Column(
                 modifier = Modifier
@@ -192,8 +234,9 @@ fun AiScreen() {
         item {
             Column(modifier = Modifier.padding(horizontal = 22.dp, vertical = 8.dp)) {
                 Text(
-                    "The key is stored in this app's private preferences on the device and is only " +
-                        "sent to the endpoint above. Nothing else in ZERO PLAYER uses the network.",
+                    "The key is stored only in this app's private preferences on the device and is " +
+                        "sent straight to the selected endpoint. It is never bundled into the APK " +
+                        "and never used for anything else.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Zero.TextTertiary,
                 )
@@ -377,6 +420,23 @@ private fun StatusLine(text: String?, ok: Boolean) {
         style = MaterialTheme.typography.bodySmall,
         color = if (ok) Zero.Chrome else Zero.Silver,
     )
+}
+
+@Composable
+private fun ProviderPill(label: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(if (selected) Zero.Silver else Zero.Surface1)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleSmall,
+            color = if (selected) Zero.Black else Zero.TextTertiary,
+        )
+    }
 }
 
 private const val UNKNOWN = "Unknown Artist"

@@ -193,8 +193,18 @@ class PlaybackService : MediaSessionService() {
                 .buildUpon()
                 .add(SLEEP_COMMAND)
                 .build()
+            // Media3's default player commands deliberately leave out the queue
+            // changing commands, so a MediaController's setMediaItems() was
+            // rejected by the session: tapping a song queued nothing, played
+            // nothing and reported no error. Grant them explicitly.
+            val playerCommands = Player.Commands.Builder()
+                .addAll(MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS)
+                .add(Player.COMMAND_CHANGE_MEDIA_ITEMS)
+                .add(Player.COMMAND_SET_MEDIA_ITEM)
+                .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(available)
+                .setAvailablePlayerCommands(playerCommands)
                 .build()
         }
 

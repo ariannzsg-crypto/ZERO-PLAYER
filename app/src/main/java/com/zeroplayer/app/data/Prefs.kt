@@ -114,6 +114,11 @@ class Prefs(context: Context) {
         get() = prefs.getString(KEY_AI_MODEL, DEFAULT_AI_MODEL) ?: DEFAULT_AI_MODEL
         set(value) = prefs.edit().putString(KEY_AI_MODEL, value).apply()
 
+    /** Selected assistant backend: [PROVIDER_GEMINI] or [PROVIDER_OPENAI]. */
+    var aiProviderKey: String
+        get() = prefs.getString(KEY_AI_PROVIDER, PROVIDER_OPENAI) ?: PROVIDER_OPENAI
+        set(value) = prefs.edit().putString(KEY_AI_PROVIDER, value).apply()
+
     /** Rebuild the one-playlist-per-artist set after every library scan. */
     var autoArtistPlaylists: Boolean
         get() = prefs.getBoolean(KEY_AI_ARTIST_PLAYLISTS, true)
@@ -183,6 +188,10 @@ class Prefs(context: Context) {
         private const val KEY_AI_BASE = "ai_base_url"
         private const val KEY_AI_MODEL = "ai_model"
         private const val KEY_AI_ARTIST_PLAYLISTS = "ai_artist_playlists"
+        private const val KEY_AI_PROVIDER = "ai_provider"
+
+        const val PROVIDER_OPENAI = "openai"
+        const val PROVIDER_GEMINI = "gemini"
 
         const val DEFAULT_AI_BASE = "https://api.z.ai/api/paas/v4"
         const val DEFAULT_AI_MODEL = "glm-4-flash"

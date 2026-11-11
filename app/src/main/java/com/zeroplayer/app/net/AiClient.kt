@@ -11,8 +11,38 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 
+/**
+ * Supported assistant backends. Gemini speaks its own REST dialect, so it has a
+ * dedicated request/response path instead of the OpenAI chat-completions shape.
+ */
+enum class AiProvider(
+    val key: String,
+    val label: String,
+    val defaultBaseUrl: String,
+    val defaultModel: String,
+) {
+    GEMINI(
+        key = "gemini",
+        label = "Google Gemini",
+        defaultBaseUrl = "https://generativelanguage.googleapis.com/v1beta",
+        defaultModel = "gemini-2.5-flash",
+    ),
+    OPENAI(
+        key = "openai",
+        label = "OpenAI-compatible",
+        defaultBaseUrl = Prefs.DEFAULT_AI_BASE,
+        defaultModel = Prefs.DEFAULT_AI_MODEL,
+    );
+
+    companion object {
+        fun fromKey(key: String?): AiProvider =
+            values().firstOrNull { it.key == key } ?: OPENAI
+    }
+}
+
 /** Resolved assistant configuration, editable from Settings → AI. */
 data class AiConfig(
+    val provider: AiProvider,
     val baseUrl: String,
     val model: String,
     val apiKey: String,
@@ -22,17 +52,19 @@ data class AiConfig(
 }
 
 /**
- * Small OpenAI-compatible chat client used by the optional assistant.
+ * Small assistant client. Two providers are supported: Google Gemini through its
+ * native `generateContent` REST API and any OpenAI-compatible chat endpoint.
  *
  * The app talks to the provider directly with the key the user typed in
- * Settings; nothing is proxied and no key is bundled with the APK. Everything
- * here is opt-in: without a key the client throws [IOException] and the UI
- * simply reports that the assistant is not configured.
+ * Settings; nothing is proxied and no key ships inside the APK. Everything here
+ * is opt-in: without a key the client throws [IOException] and the UI simply
+ * reports that the assistant is not configured.
  */
 class AiClient(private val prefs: Prefs) {
 
     val config: AiConfig
         get() = AiConfig(
+            provider = AiProvider.fromKey(prefs.aiProviderKey),
             baseUrl = prefs.aiBaseUrl.trim(),
             model = prefs.aiModel.trim(),
             apiKey = prefs.aiApiKey.trim(),
@@ -106,7 +138,81 @@ class AiClient(private val prefs: Prefs) {
         return if (unknown) null else first
     }
 
-    private fun post(cfg: AiConfig, system: String, user: String, temperature: Double): String {
+    private fun post(cfg: AiConfig, system: String, user: String, temperature: Double): String =
+        when (cfg.provider) {
+            AiProvider.GEMINI -> postGemini(cfg, system, user, temperature)
+            AiProvider.OPENAI -> postOpenAi(cfg, system, user, temperature)
+        }
+
+    /* ------------------------------- Gemini ------------------------------- */
+
+    private fun postGemini(cfg: AiConfig, system: String, user: String, temperature: Double): String {
+        val base = cfg.baseUrl.trimEnd('/')
+        val endpoint = when {
+            base.endsWith(":generateContent") -> base
+            base.contains("/models/") -> "$base:generateContent"
+            else -> "$base/models/${cfg.model}:generateContent"
+        }
+        val payload = JSONObject()
+            .put(
+                "systemInstruction",
+                JSONObject().put("parts", JSONArray().put(JSONObject().put("text", system))),
+            )
+            .put(
+                "contents",
+                JSONArray().put(
+                    JSONObject()
+                        .put("role", "user")
+                        .put("parts", JSONArray().put(JSONObject().put("text", user))),
+                ),
+            )
+            .put(
+                "generationConfig",
+                JSONObject()
+                    .put("temperature", temperature)
+                    .put("maxOutputTokens", 8_192),
+            )
+            .toString()
+
+        val body = execute(
+            endpoint = endpoint,
+            apiKey = cfg.apiKey,
+            payload = payload,
+            apiKeyHeader = "x-goog-api-key",
+        )
+
+        val root = try {
+            JSONObject(body)
+        } catch (e: JSONException) {
+            throw IOException("The provider sent an unexpected response.")
+        }
+        val blocked = root.optJSONObject("promptFeedback")?.optString("blockReason").orEmpty()
+        if (blocked.isNotBlank()) throw IOException("The model refused this prompt ($blocked).")
+
+        val candidate = root.optJSONArray("candidates")?.optJSONObject(0)
+            ?: throw IOException("The provider sent no candidates. Check the model name.")
+        val parts = candidate.optJSONObject("content")?.optJSONArray("parts")
+        val text = buildString {
+            if (parts != null) {
+                for (index in 0 until parts.length()) {
+                    val chunk = parts.optJSONObject(index)?.optString("text").orEmpty()
+                    if (chunk.isNotBlank()) append(chunk)
+                }
+            }
+        }.trim()
+        if (text.isBlank()) {
+            val finish = candidate.optString("finishReason")
+            throw IOException(
+                if (finish.isNotBlank()) "The model stopped early ($finish) without text."
+                else "The model returned an empty answer.",
+            )
+        }
+        return text
+    }
+
+    /* -------------------------- OpenAI compatible -------------------------- */
+
+    private fun postOpenAi(cfg: AiConfig, system: String, user: String, temperature: Double): String {
         val endpoint = cfg.baseUrl.trimEnd('/').let {
             if (it.endsWith("/chat/completions")) it else "$it/chat/completions"
         }
@@ -119,14 +225,43 @@ class AiClient(private val prefs: Prefs) {
             })
         }.toString()
 
+        val body = execute(
+            endpoint = endpoint,
+            apiKey = cfg.apiKey,
+            payload = payload,
+            apiKeyHeader = "Authorization",
+        )
+        val content = try {
+            JSONObject(body).optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("message")
+                ?.optString("content")
+                .orEmpty()
+        } catch (e: JSONException) {
+            throw IOException("The provider sent an unexpected response.")
+        }
+        if (content.isBlank()) throw IOException("The model returned an empty answer.")
+        return content.trim()
+    }
+
+    /**
+     * Performs the POST and returns the body. [apiKeyHeader] is `Authorization`
+     * (sent as a bearer token) for OpenAI-compatible endpoints and
+     * `x-goog-api-key` for Gemini.
+     */
+    private fun execute(endpoint: String, apiKey: String, payload: String, apiKeyHeader: String): String {
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 20_000
-            readTimeout = 90_000
+            readTimeout = 120_000
             doOutput = true
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
             setRequestProperty("Accept", "application/json")
-            setRequestProperty("Authorization", "Bearer ${cfg.apiKey}")
+            if (apiKeyHeader == "Authorization") {
+                setRequestProperty(apiKeyHeader, "Bearer $apiKey")
+            } else {
+                setRequestProperty(apiKeyHeader, apiKey)
+            }
         }
         try {
             connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
@@ -138,17 +273,7 @@ class AiClient(private val prefs: Prefs) {
             if (code !in 200..299) {
                 throw IOException("HTTP $code · ${body.take(240).ifBlank { "no response body" }}")
             }
-            val content = try {
-                JSONObject(body).optJSONArray("choices")
-                    ?.optJSONObject(0)
-                    ?.optJSONObject("message")
-                    ?.optString("content")
-                    .orEmpty()
-            } catch (e: JSONException) {
-                throw IOException("The provider sent an unexpected response.")
-            }
-            if (content.isBlank()) throw IOException("The model returned an empty answer.")
-            return content.trim()
+            return body
         } finally {
             connection.disconnect()
         }
