@@ -46,6 +46,11 @@ class PlaybackService : MediaSessionService() {
     private var currentItemStartedAt = 0L
     private var trackedSongId = -1L
 
+    /* Real listening time: position deltas sampled while the player runs. */
+    private var listenJob: Job? = null
+    private var lastSamplePosition = 0L
+    private var pendingListenMs = 0L
+
     override fun onCreate() {
         super.onCreate()
         Graph.init(this)
@@ -103,6 +108,41 @@ class PlaybackService : MediaSessionService() {
         player = exoPlayer
         AudioTap.active = true
         DiagLog.d("SVC", "media session ready")
+        startListenTracker()
+    }
+
+    /**
+     * Accumulates how long each track was actually heard. Only forward position
+     * deltas of a plausible size count, so pausing, seeking and buffering never
+     * inflate the total. Batches are flushed every ten seconds of listening and
+     * whenever playback stops or the track changes.
+     */
+    private fun startListenTracker() {
+        if (listenJob != null) return
+        listenJob = scope.launch {
+            while (true) {
+                delay(2_000)
+                val active = player ?: continue
+                val position = active.currentPosition
+                if (active.isPlaying) {
+                    val delta = position - lastSamplePosition
+                    if (delta in 0..5_000) pendingListenMs += delta
+                }
+                lastSamplePosition = position
+                if (pendingListenMs >= 10_000 || (pendingListenMs > 0 && !active.isPlaying)) {
+                    flushListening()
+                }
+            }
+        }
+    }
+
+    private fun flushListening() {
+        val songId = trackedSongId
+        val millis = pendingListenMs
+        pendingListenMs = 0L
+        if (songId > 0 && millis > 0) {
+            Graph.appScope.launch { Graph.music.addListening(songId, millis) }
+        }
     }
 
     private fun openAppIntent(): PendingIntent {
@@ -132,6 +172,8 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         DiagLog.d("SVC", "onDestroy")
+        flushListening()
+        listenJob?.cancel()
         persistQueue()
         sleepJob?.cancel()
         AudioTap.active = false
@@ -147,18 +189,22 @@ class PlaybackService : MediaSessionService() {
 
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            flushListening()
             commitPlayCount()
             trackedSongId = mediaItem?.songId() ?: -1L
             currentItemStartedAt = System.currentTimeMillis()
+            lastSamplePosition = player?.currentPosition ?: 0L
             persistQueue()
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (!isPlaying) {
+                flushListening()
                 commitPlayCount()
                 persistQueue()
             } else {
                 currentItemStartedAt = System.currentTimeMillis()
+                lastSamplePosition = player?.currentPosition ?: 0L
             }
         }
 

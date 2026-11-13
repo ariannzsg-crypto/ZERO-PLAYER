@@ -254,7 +254,8 @@ private fun UserPlaylistRow(playlist: Playlist, library: LibraryData, onClick: (
             .padding(horizontal = 18.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (songs.isEmpty()) {
+        val cover = playlist.coverUri ?: songs.firstOrNull()?.artworkUri?.toString()
+        if (cover.isNullOrBlank()) {
             Box(
                 modifier = Modifier
                     .size(56.dp)
@@ -266,7 +267,7 @@ private fun UserPlaylistRow(playlist: Playlist, library: LibraryData, onClick: (
             }
         } else {
             CoverArt(
-                artworkUri = songs.first().artworkUri.toString(),
+                artworkUri = cover,
                 label = playlist.name,
                 corner = 14.dp,
                 modifier = Modifier.size(56.dp),

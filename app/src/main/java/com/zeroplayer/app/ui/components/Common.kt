@@ -13,6 +13,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +30,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
@@ -262,14 +264,38 @@ fun SongRow(
     showArtwork: Boolean = true,
     leadingIndex: Int? = null,
     subtitleOverride: String? = null,
+    selected: Boolean = false,
+    selectionMode: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .background(if (selected) Zero.Surface2.copy(alpha = 0.9f) else Color.Transparent)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 18.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (selectionMode) {
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(if (selected) Zero.Chrome else Color.Transparent)
+                    .border(1.2.dp, if (selected) Zero.Chrome else Zero.TextTertiary, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (selected) {
+                    Icon(
+                        imageVector = Icons.Rounded.Check,
+                        contentDescription = null,
+                        tint = Zero.Black,
+                        modifier = Modifier.size(13.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+        }
         if (showArtwork) {
             Box(contentAlignment = Alignment.Center) {
                 CoverArt(

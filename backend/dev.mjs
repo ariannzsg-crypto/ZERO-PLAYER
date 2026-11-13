@@ -22,6 +22,7 @@ const routes = {
   '/api/health': 'api/health.js',
   '/api/spotify/token': 'api/spotify/token.js',
   '/api/soundcloud/token': 'api/soundcloud/token.js',
+  '/api/soundcloud/callback': 'api/soundcloud/callback.js',
   '/api/youtube/search': 'api/youtube/search.js',
 };
 
