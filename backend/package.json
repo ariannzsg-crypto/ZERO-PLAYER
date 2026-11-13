@@ -1,0 +1,17 @@
+{
+  "name": "zero-player-backend",
+  "private": true,
+  "version": "1.0.0",
+  "description": "OAuth token exchange and key-protected search for ZERO PLAYER's online music section.",
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "typecheck": "tsc --noEmit",
+    "test:local": "tsc -p tsconfig.local.json && node dev.mjs",
+    "deploy": "vercel deploy --prod"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/node": "^22.7.5"
+  }
+}

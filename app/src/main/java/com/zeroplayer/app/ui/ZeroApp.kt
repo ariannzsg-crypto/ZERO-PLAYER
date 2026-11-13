@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Search
@@ -63,6 +64,8 @@ import com.zeroplayer.app.ui.screens.HomeScreen
 import com.zeroplayer.app.ui.screens.LibraryScreen
 import com.zeroplayer.app.ui.screens.LyricsScreen
 import com.zeroplayer.app.ui.screens.NowPlayingScreen
+import com.zeroplayer.app.ui.screens.OnlineMusicScreen
+import com.zeroplayer.app.ui.screens.OnlineVideoScreen
 import com.zeroplayer.app.ui.screens.PermissionScreen
 import com.zeroplayer.app.ui.screens.PlaylistDetailScreen
 import com.zeroplayer.app.ui.screens.PlaylistsScreen
@@ -165,6 +168,8 @@ fun ZeroApp() {
                     Dest.Search -> SearchScreen(library = library)
                     Dest.Settings -> SettingsScreen(library = library, playback = playback)
                     Dest.Ai -> AiScreen()
+                    Dest.Online -> OnlineMusicScreen()
+                    is Dest.OnlineVideo -> OnlineVideoScreen(videoId = dest.videoId, title = dest.title)
                     is Dest.Album -> AlbumScreen(albumId = dest.albumId, fallbackTitle = dest.title, library = library, playback = playback)
                     is Dest.Artist -> ArtistScreen(artistName = dest.name, library = library, playback = playback)
                     is Dest.Folder -> FolderScreen(path = dest.path, fallbackTitle = dest.title, library = library, playback = playback)
@@ -209,6 +214,7 @@ private fun ZeroBottomBar(current: Dest, onSelect: (Dest) -> Unit) {
         Triple(Dest.Library, Icons.Rounded.LibraryMusic, "Library"),
         Triple(Dest.Playlists, Icons.Rounded.QueueMusic, "Playlists"),
         Triple(Dest.Search, Icons.Rounded.Search, "Search"),
+        Triple(Dest.Online, Icons.Rounded.Language, "Online"),
     )
     Row(
         modifier = Modifier
@@ -234,7 +240,7 @@ private fun BottomBarItem(icon: ImageVector, label: String, selected: Boolean, o
         modifier = Modifier
             .clip(RoundedCornerShape(16.dp))
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 4.dp),
+            .padding(horizontal = 9.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Icon(

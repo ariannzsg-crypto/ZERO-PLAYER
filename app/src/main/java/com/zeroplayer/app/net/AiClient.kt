@@ -271,11 +271,49 @@ class AiClient(private val prefs: Prefs) {
                 ?.use { it.readText() }
                 .orEmpty()
             if (code !in 200..299) {
-                throw IOException("HTTP $code · ${body.take(240).ifBlank { "no response body" }}")
+                throw IOException(describeHttpFailure(code, body))
+            }
+            if (looksLikeHtml(body)) {
+                throw IOException(
+                    "The endpoint answered with a web page (HTTP 200) instead of an API reply. " +
+                        "Check the Base URL: it should point at the API, not at a website.",
+                )
             }
             return body
         } finally {
             connection.disconnect()
+        }
+    }
+
+    private fun looksLikeHtml(body: String): Boolean {
+        val head = body.trimStart().take(200).lowercase()
+        return head.startsWith("<") || head.contains("<!doctype") || head.contains("<html")
+    }
+
+    /**
+     * Turns a failed HTTP response into something a person can act on. Gateways in
+     * restricted regions answer with an HTML page whose 403 says nothing about the
+     * API key, so that case is spelled out instead of dumping markup into the UI.
+     */
+    private fun describeHttpFailure(code: Int, body: String): String {
+        if (looksLikeHtml(body)) {
+            return when (code) {
+                403 -> "HTTP 403 · the provider's gateway blocked the request before it reached the " +
+                    "API, so the key was never checked. This is a network or region block; a VPN fixes it."
+                429 -> "HTTP 429 · the provider's gateway is rate limiting this network. Try again later."
+                502, 503, 504 -> "HTTP $code · the provider's gateway is unavailable right now. " +
+                    "Try again in a minute."
+                else -> "HTTP $code · the provider's gateway answered with an HTML page instead of an " +
+                    "API reply. That points at a network block or an outage, not at the key."
+            }
+        }
+        val apiMessage = runCatching {
+            JSONObject(body).optJSONObject("error")?.optString("message").orEmpty()
+        }.getOrDefault("")
+        return if (apiMessage.isNotBlank()) {
+            "HTTP $code · ${apiMessage.trim().take(300)}"
+        } else {
+            "HTTP $code · ${body.trim().take(200).ifBlank { "no response body" }}"
         }
     }
 
