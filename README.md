@@ -14,6 +14,7 @@ Pure black canvas. Charcoal surfaces. Silver chrome accents. No clutter.
 
 - [Screens](#screens)
 - [Features](#features)
+- [Online music](#online-music-spotify--soundcloud--youtube)
 - [Technology stack](#technology-stack)
 - [Architecture](#architecture)
 - [Installation](#installation)
@@ -38,6 +39,7 @@ Pure black canvas. Charcoal surfaces. Silver chrome accents. No clutter.
 | **Now Playing** | Artwork, seek bar, transport controls, favourite, queue, lyrics, equalizer and visualizer modes |
 | **Lyrics** | Full-screen lyrics with LRC sync highlighting, manual import and AI lookup |
 | **AI** | Optional assistant: endpoint and key, connection test, artist playlists, unknown-artist repair |
+| **Online** | Spotify, SoundCloud and YouTube in one search surface, with provider cards, connection state and an embedded YouTube player |
 | **Widget** | Resizable 4×1 home screen widget with track info and transport controls |
 | **Equalizer** | Ten band EQ curve, bass boost, virtualizer, pre-amp, presets and saved profiles |
 | **Queue** | Live queue with jump, remove and clear |
@@ -110,6 +112,76 @@ Add captures to `docs/screenshots/` and they will render here.
 
 ---
 
+## Online music (Spotify · SoundCloud · YouTube)
+
+A fifth tab, **Online**, browses three external catalogues without leaving the player's identity:
+same black canvas, chrome accents and one unified search field. Each provider is a separate service in
+`net/online/`, so their rules never leak into the local library code.
+
+<div align="center">
+
+| Provider | Search | Playback | Audio through ZERO PLAYER? |
+| --- | --- | --- | --- |
+| **Spotify** | Tracks, albums, artists, playlists (Web API) | Transport controls via the Web API; audio plays in the Spotify app | **No** — Equalizer and visualizer do not apply |
+| **SoundCloud** | Tracks with artwork, user and duration | Opens the track in SoundCloud's own app/site | **No** |
+| **YouTube** | Music videos via Data API v3 (key held by the backend) | Official embedded player inside the app | **No** — ads, attribution and the no-background-playback policy are YouTube's |
+
+</div>
+
+### What is implemented
+
+- **Unified search** across the selected provider, with artwork, artist/channel, duration and a
+  staggered entrance for each row.
+- **Recently played** per device, remembered in the app's private preferences.
+- **Provider cards** with an animated accent that morphs when you switch between Spotify, SoundCloud
+  and YouTube, plus a live connection dot and the signed-in account name.
+- **Spotify now playing**: artwork, title, artist, seek slider and previous/play-pause/next, driven by
+  `/me/player` polling that runs only while the Online screen is visible.
+- **Loading, empty and error states** — shimmering skeletons, a retry card, and provider errors
+  translated into readable text (HTML/403 gateway blocks are spelled out instead of dumping markup).
+- **Setup sheet** for the backend URL and the two public client IDs, with a *Check backend* button that
+  reports which server-side keys are present.
+
+### Authentication and secrets
+
+- Spotify and SoundCloud use **OAuth 2.0 Authorization Code + PKCE**. The phone never sees a client
+  secret; the code is exchanged by the Vercel backend, which holds it.
+- Tokens are stored in a private preferences file (`zero_player_online`), refreshed ~60 s before
+  expiry, and wiped by **Disconnect**. They are never logged and never leave the device except as an
+  `Authorization` header to the provider that issued them.
+- The redirect `zeroplayer://oauth/<provider>` is handled by `MainActivity`; the app rejects any
+  callback whose `state` does not match the value it generated.
+- The **YouTube Data API key exists only on the backend** — `/api/youtube/search` is the only caller.
+
+### Backend
+
+`backend/` is a separate Vercel project: TypeScript Edge functions, zero runtime dependencies, request
+validation, per-IP rate limiting and a JSON error contract.
+
+```bash
+cd backend
+npm install && npx tsc --noEmit   # typecheck
+npm run test:local                # local harness on :3000
+vercel --prod                     # deploy
+```
+
+Deployment steps, provider dashboard setup and the environment variables are documented in
+[`backend/README.md`](backend/README.md) and [`backend/.env.example`](backend/.env.example).
+
+### Honest limitations
+
+| Requirement | Reality |
+| --- | --- |
+| Spotify App Remote SDK | Spotify ships the Android App Remote SDK as a **beta AAR that is not on Maven Central**. This build uses the Web API instead: same catalogue, plus real transport control for Premium accounts with an active device. No hand-managed binary is vendored. |
+| Spotify streaming inside ZERO PLAYER | Not offered. Spotify audio never enters ExoPlayer, so the ten-band EQ and visualizer cannot process it. |
+| Spotify `preview_url` | Deprecated by Spotify and mostly `null`; not used. |
+| SoundCloud in-app streaming | Requires an approved SoundCloud application. Until then playback hands off to SoundCloud's own app/site; nothing is scraped or extracted. |
+| YouTube background playback | Not available by policy; the embedded player stops when its screen closes. |
+| Light theme | The app's identity is a black canvas; the online section follows it. A light variant would need an app-wide design pass and is not part of this change. |
+| Shared-element transitions | Compose's shared-element API is still experimental on the pinned Compose version, so screen changes use `AnimatedContent` with scale/fade/`slideIn` rather than an experimental API. |
+
+---
+
 ## Technology stack
 
 | Layer | Choice |
@@ -144,6 +216,7 @@ com.zeroplayer.app
 │   ├── db/                  Room entities, DAOs, database
 │   └── model/               Song, Album, Artist, Folder, Playlist, SmartKind
 ├── net/                     AiClient — optional Gemini / OpenAI-compatible assistant
+│   └── online/              provider services (Spotify, SoundCloud, YouTube), PKCE, tokens, repository
 ├── playback/
 │   ├── PlaybackService      MediaSessionService, notification, queue persistence, sleep timer
 │   ├── PlaybackController   MediaController bridge exposing a StateFlow snapshot
@@ -253,13 +326,17 @@ Grab it from [Releases](../../releases/latest).
 | `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK` | Keep playback alive in the background |
 | `WAKE_LOCK` | Continue playback with the screen off |
 | `MODIFY_AUDIO_SETTINGS` | Apply the equalizer DSP |
-| `INTERNET` | Optional AI assistant only (lyrics lookup, artist guessing). Nothing else uses it |
+| `INTERNET` | Optional AI assistant and the opt-in Online Music section |
 
-Playback, the library, the equalizer and the visualizer never touch the network. `INTERNET` exists
-solely for the AI assistant, which stays disabled until you enter your own API key in Settings → AI.
-The key lives in the app's private preferences; there is no backend, no proxy and no key in the APK.
+Local playback, the library, the equalizer and the visualizer never touch the network. `INTERNET` is
+used by two opt-in features: the AI assistant, which stays inert until you enter your own API key in
+Settings → AI, and the Online Music section, which contacts only the providers you connect plus your
+own backend. Both stay unused if you never open them; no key or token is embedded in the APK.
 `ACCESS_NETWORK_STATE` appears in the merged manifest because the Media3 notification reads the
 connection type.
+
+Cleartext HTTP is disabled except for `localhost`, `127.0.0.1` and `10.0.2.2`, so a local backend can
+be tested from an emulator without opening the rest of the app to plain HTTP.
 
 ---
 

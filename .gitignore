@@ -34,3 +34,11 @@ Thumbs.db
 
 # Local release package (APK zip + git bundle for manual publishing)
 dist/
+
+# Vercel backend: dependencies, local harness build, deployment metadata, secrets
+backend/node_modules/
+backend/.local-build/
+backend/.vercel/
+.env
+.env.*
+!.env.example

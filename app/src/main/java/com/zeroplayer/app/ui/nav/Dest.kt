@@ -16,6 +16,11 @@ sealed interface Dest {
     data object Search : Dest { override val key = "search" }
     data object Settings : Dest { override val key = "settings" }
     data object Ai : Dest { override val key = "ai" }
+    data object Online : Dest { override val key = "online" }
+
+    data class OnlineVideo(val videoId: String, val title: String) : Dest {
+        override val key get() = "online_video_$videoId"
+    }
 
     data class Album(val albumId: Long, val title: String) : Dest {
         override val key get() = "album_$albumId"
@@ -43,10 +48,11 @@ sealed interface Dest {
     data object Lyrics : Dest { override val key = "lyrics" }
 
     val isTab: Boolean
-        get() = this is Home || this is Library || this is Playlists || this is Search
+        get() = this is Home || this is Library || this is Playlists || this is Search || this is Online
 
     val isFullscreen: Boolean
-        get() = this is NowPlaying || this is Lyrics || this is Equalizer || this is Queue
+        get() = this is NowPlaying || this is Lyrics || this is Equalizer || this is Queue ||
+            this is OnlineVideo
 }
 
 enum class SongListKind { ALL, FAVORITES, RECENT, MOST_PLAYED }

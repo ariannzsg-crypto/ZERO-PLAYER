@@ -7,6 +7,8 @@ import com.zeroplayer.app.data.Prefs
 import com.zeroplayer.app.data.db.AppDatabase
 import com.zeroplayer.app.lyrics.LyricsRepository
 import com.zeroplayer.app.net.AiClient
+import com.zeroplayer.app.net.online.OnlinePrefs
+import com.zeroplayer.app.net.online.OnlineRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,6 +24,7 @@ object Graph {
     private var prefsInstance: Prefs? = null
     private var lyricsInstance: LyricsRepository? = null
     private var aiInstance: AiClient? = null
+    private var onlineInstance: OnlineRepository? = null
 
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -36,6 +39,7 @@ object Graph {
             repository = MusicRepository(app, database!!, prefsInstance!!)
             lyricsInstance = LyricsRepository(app, database!!, prefsInstance!!)
             aiInstance = AiClient(prefsInstance!!)
+            onlineInstance = OnlineRepository(OnlinePrefs(app))
             EqualizerController.restore(prefsInstance!!, repository!!)
         }
     }
@@ -46,4 +50,5 @@ object Graph {
     val music: MusicRepository get() = requireNotNull(repository) { "Graph.init() not called" }
     val lyrics: LyricsRepository get() = requireNotNull(lyricsInstance) { "Graph.init() not called" }
     val ai: AiClient get() = requireNotNull(aiInstance) { "Graph.init() not called" }
+    val online: OnlineRepository get() = requireNotNull(onlineInstance) { "Graph.init() not called" }
 }
