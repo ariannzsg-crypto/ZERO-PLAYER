@@ -1,5 +1,6 @@
 package com.zeroplayer.app.net.online
 
+import com.zeroplayer.app.core.DiagLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -37,6 +38,12 @@ class OnlineHttp {
         headers: Map<String, String> = emptyMap(),
         timeoutMs: Int = 15_000,
     ): Response = withContext(Dispatchers.IO) {
+        val parsed = runCatching { URL(url) }.getOrNull()
+        val scope = scopeOf(parsed?.host.orEmpty(), parsed?.path.orEmpty())
+        val target = safeTarget(parsed)
+        val startedAt = System.currentTimeMillis()
+        DiagLog.d(scope, "-> $method $target")
+
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = 12_000
@@ -56,8 +63,25 @@ class OnlineHttp {
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
             val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val elapsed = System.currentTimeMillis() - startedAt
+            when {
+                code in 200..299 -> DiagLog.d(scope, "<- $code $method $target (${elapsed}ms)")
+                code in 400..499 -> DiagLog.d(
+                    scope,
+                    "<- $code $method $target (${elapsed}ms): ${redact(text).take(160)}",
+                )
+                else -> DiagLog.e(
+                    scope,
+                    "<- $code $method $target (${elapsed}ms): ${redact(text).take(160)}",
+                )
+            }
             Response(code, text)
         } catch (io: IOException) {
+            DiagLog.e(
+                scope,
+                "x $method $target after ${System.currentTimeMillis() - startedAt}ms: ${DiagLog.describe(io)}",
+                io,
+            )
             throw IOException(friendlyNetworkMessage(io), io)
         } finally {
             connection.disconnect()
@@ -65,6 +89,43 @@ class OnlineHttp {
     }
 
     companion object {
+
+        /**
+         * Which provider a call belongs to, derived from the URL so every call
+         * site is traced without touching it: api.spotify.com and
+         * account.spotify.com log as SPOTIFY, api.soundcloud.com as SOUNDCLOUD,
+         * and the Vercel backend by the provider named in its path.
+         */
+        fun scopeOf(host: String, path: String): String {
+            val lowerHost = host.lowercase()
+            val lowerPath = path.lowercase()
+            return when {
+                lowerHost.endsWith("spotify.com") -> "SPOTIFY"
+                lowerHost.endsWith("soundcloud.com") -> "SOUNDCLOUD"
+                lowerHost.endsWith("youtube.com") || lowerHost.endsWith("googleapis.com") -> "YOUTUBE"
+                "spotify" in lowerPath -> "SPOTIFY"
+                "soundcloud" in lowerPath -> "SOUNDCLOUD"
+                "youtube" in lowerPath -> "YOUTUBE"
+                else -> "BACKEND"
+            }
+        }
+
+        /** Host, path and a truncated query: never headers, tokens or cookies. */
+        fun safeTarget(parsed: URL?): String {
+            if (parsed == null) return "<invalid url>"
+            val query = parsed.query?.let { raw ->
+                "?" + if (raw.length > 90) raw.take(90) + "..." else raw
+            }.orEmpty()
+            return "${parsed.host}${parsed.path}$query"
+        }
+
+        /** Token-shaped values are masked before an error body reaches the log. */
+        fun redact(text: String): String = text
+            .replace(
+                Regex("\"(access_token|refresh_token|id_token|code|code_verifier)\"\\s*:\\s*\"[^\"]*\""),
+                "\"\$1\":\"***\"",
+            )
+            .replace(Regex("(access_token|refresh_token|code_verifier)=[^&\"]+"), "\$1=***")
 
         /** Same HTML/JSON distinction the AI client learned the hard way. */
         fun looksLikeHtml(body: String): Boolean {
