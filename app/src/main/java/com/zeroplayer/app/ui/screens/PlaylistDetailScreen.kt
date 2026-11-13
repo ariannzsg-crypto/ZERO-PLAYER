@@ -1,6 +1,10 @@
 package com.zeroplayer.app.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
@@ -16,11 +20,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
@@ -47,11 +53,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.zeroplayer.app.core.Graph
 import com.zeroplayer.app.data.LibraryData
+import com.zeroplayer.app.data.PlaylistCovers
 import com.zeroplayer.app.data.model.Song
 import com.zeroplayer.app.playback.PlaybackState
 import com.zeroplayer.app.ui.nav.LocalBottomInset
@@ -64,7 +72,9 @@ import com.zeroplayer.app.ui.components.ZeroIconButton
 import com.zeroplayer.app.ui.nav.LocalNav
 import com.zeroplayer.app.ui.theme.Zero
 import com.zeroplayer.app.ui.trackCountLabel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val RowHeight = 62.dp
 
@@ -97,6 +107,23 @@ fun PlaylistDetailScreen(
     var renameValue by remember { mutableStateOf("") }
     var actionSong by remember { mutableStateOf<Song?>(null) }
     val bottomInset = LocalBottomInset.current
+
+    val context = LocalContext.current
+    val coverPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { picked ->
+        if (picked != null) {
+            scope.launch {
+                val stored = withContext(Dispatchers.IO) {
+                    PlaylistCovers.copyIntoStorage(context, playlistId, picked)
+                }
+                if (stored != null) {
+                    PlaylistCovers.release(context, playlist?.coverUri)
+                    Graph.music.setPlaylistCover(playlistId, stored)
+                }
+            }
+        }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -132,6 +159,37 @@ fun PlaylistDetailScreen(
                                     },
                                 )
                                 DropdownMenuItem(
+                                    text = { Text("Change cover", color = Zero.TextSecondary) },
+                                    onClick = {
+                                        showMenu = false
+                                        coverPicker.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Rounded.Image, contentDescription = null, tint = Zero.TextTertiary)
+                                    },
+                                )
+                                if (playlist?.coverUri != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Remove cover", color = Zero.TextSecondary) },
+                                        onClick = {
+                                            showMenu = false
+                                            scope.launch {
+                                                PlaylistCovers.release(context, playlist?.coverUri)
+                                                Graph.music.setPlaylistCover(playlistId, null)
+                                            }
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Rounded.DeleteOutline,
+                                                contentDescription = null,
+                                                tint = Zero.TextTertiary,
+                                            )
+                                        },
+                                    )
+                                }
+                                DropdownMenuItem(
                                     text = { Text("Delete playlist", color = Zero.Danger) },
                                     onClick = {
                                         showMenu = false
@@ -150,14 +208,73 @@ fun PlaylistDetailScreen(
 
         item {
             Column(modifier = Modifier.padding(horizontal = 22.dp)) {
-                if (resolved.isNotEmpty()) {
-                    CoverArt(
-                        artworkUri = resolved.first().artworkUri.toString(),
-                        label = fallbackTitle,
-                        corner = 18.dp,
-                        modifier = Modifier.size(110.dp),
-                    )
+                val cover = playlist?.coverUri ?: resolved.firstOrNull()?.artworkUri?.toString()
+                if (cover != null) {
+                    Box {
+                        CoverArt(
+                            artworkUri = cover,
+                            label = fallbackTitle,
+                            corner = 18.dp,
+                            modifier = Modifier
+                                .size(110.dp)
+                                .clickable(enabled = !isSmart) {
+                                    coverPicker.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                    )
+                                },
+                        )
+                        if (!isSmart) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(6.dp)
+                                    .size(26.dp)
+                                    .clip(CircleShape)
+                                    .background(Zero.Black.copy(alpha = 0.6f))
+                                    .clickable {
+                                        coverPicker.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                        )
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Image,
+                                    contentDescription = "Change cover",
+                                    tint = Zero.Chrome,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                            }
+                        }
+                    }
                     Spacer(Modifier.height(14.dp))
+                } else if (!isSmart) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .border(0.8.dp, Zero.Hairline, RoundedCornerShape(50))
+                            .clickable {
+                                coverPicker.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                )
+                            }
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Image,
+                            contentDescription = null,
+                            tint = Zero.SilverDim,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "Add cover",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Zero.Silver,
+                        )
+                    }
+                    Spacer(Modifier.height(18.dp))
                 }
                 Text(
                     text = playlist?.name ?: fallbackTitle,

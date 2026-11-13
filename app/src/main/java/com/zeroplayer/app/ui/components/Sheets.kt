@@ -1,5 +1,12 @@
 package com.zeroplayer.app.ui.components
 
+import android.app.Activity
+import android.os.Build
+import android.provider.MediaStore
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,15 +25,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -39,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zeroplayer.app.data.LibraryData
@@ -66,7 +77,42 @@ fun SongActionsSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     var showPlaylists by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     val isFavorite = library.isFavorite(song.id)
+    val context = LocalContext.current
+
+    // Android 11+ asks the user to confirm a MediaStore delete request; older
+    // releases delete directly and report when the platform refuses.
+    val deleteLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult(),
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            scope.launch {
+                Graph.music.purgeSongs(listOf(song.id))
+                sheetState.hide()
+                onDismiss()
+            }
+        }
+    }
+
+    fun requestFileDelete() {
+        val uri = song.contentUri
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val request = MediaStore.createDeleteRequest(context.contentResolver, listOf(uri))
+            deleteLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
+            return
+        }
+        val removed = runCatching { context.contentResolver.delete(uri, null, null) }.getOrDefault(0)
+        if (removed > 0) {
+            scope.launch {
+                Graph.music.purgeSongs(listOf(song.id))
+                sheetState.hide()
+                onDismiss()
+            }
+        } else {
+            Toast.makeText(context, "Android did not allow deleting this file.", Toast.LENGTH_LONG).show()
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -138,6 +184,9 @@ fun SongActionsSheet(
                         onDismiss()
                     }
                 }
+                SheetAction(Icons.Rounded.DeleteOutline, "Delete from device", tint = Zero.Danger) {
+                    showDeleteConfirm = true
+                }
             } else {
                 Text(
                     text = "ADD TO PLAYLIST",
@@ -161,6 +210,76 @@ fun SongActionsSheet(
                                 sheetState.hide()
                                 onDismiss()
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            containerColor = Zero.Surface1,
+            title = { Text("Delete this file?", color = Zero.TextPrimary) },
+            text = {
+                Text(
+                    "“${song.title}” will be removed from your device storage, together with its " +
+                        "playlist entries. This cannot be undone.",
+                    color = Zero.TextSecondary,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    requestFileDelete()
+                }) { Text("Delete", color = Zero.Danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel", color = Zero.TextTertiary)
+                }
+            },
+        )
+    }
+}
+
+/** Applies one playlist to a multi-song selection in a single write. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun AddToPlaylistSheet(songIds: List<Long>, library: LibraryData, onDismiss: () -> Unit) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Zero.Surface1,
+        contentColor = Zero.TextPrimary,
+        dragHandle = { SheetHandle() },
+    ) {
+        Column(modifier = Modifier.padding(bottom = 26.dp)) {
+            Text(
+                text = "ADD ${songIds.size} TRACK" + if (songIds.size == 1) "" else "S" + " TO",
+                style = MaterialTheme.typography.labelSmall,
+                color = Zero.TextTertiary,
+                modifier = Modifier.padding(start = 22.dp, top = 10.dp, bottom = 8.dp),
+            )
+            SheetAction(Icons.Rounded.Add, "New playlist") {
+                scope.launch {
+                    val id = Graph.music.createPlaylist("New playlist")
+                    Graph.music.addToPlaylist(id, songIds)
+                    sheetState.hide()
+                    onDismiss()
+                }
+            }
+            LazyColumn(modifier = Modifier.height(260.dp)) {
+                items(library.playlists.filter { it.smartKind == null }, key = { it.id }) { playlist ->
+                    PlaylistPickRow(playlist) {
+                        scope.launch {
+                            Graph.music.addToPlaylist(playlist.id, songIds)
+                            sheetState.hide()
+                            onDismiss()
                         }
                     }
                 }

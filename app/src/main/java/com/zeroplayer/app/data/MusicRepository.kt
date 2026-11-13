@@ -56,6 +56,8 @@ data class LibraryData(
 
     fun playCount(songId: Long): Int = stats[songId]?.playCount ?: 0
 
+    fun listenedMs(songId: Long): Long = stats[songId]?.listenedMs ?: 0L
+
     fun songsFor(albumId: Long): List<Song> =
         songs.filter { it.albumId == albumId }.sortedBy { it.track }
 
@@ -157,7 +159,9 @@ class MusicRepository(
         meta: Meta,
     ): LibraryData {
         val songs = songRows.map(SongEntity::toSong)
-        val stats = statRows.associate { it.songId to SongStat(it.songId, it.playCount, it.lastPlayedAt) }
+        val stats = statRows.associate {
+            it.songId to SongStat(it.songId, it.playCount, it.lastPlayedAt, it.listenedMs)
+        }
         val favorites = favIds.toSet()
         val byId = songs.associateBy { it.id }
 
@@ -271,6 +275,29 @@ class MusicRepository(
     }
 
     suspend fun recordPlay(songId: Long) = withContext(Dispatchers.IO) { db.stats().recordPlay(songId) }
+
+    /** Adds observed playback time; called from the service in small batches. */
+    suspend fun addListening(songId: Long, deltaMs: Long) = withContext(Dispatchers.IO) {
+        db.stats().addListening(songId, deltaMs)
+    }
+
+    /** Stores (or clears) a playlist cover that already lives in app storage. */
+    suspend fun setPlaylistCover(id: Long, coverUri: String?) = withContext(Dispatchers.IO) {
+        db.playlists().updateCover(id, coverUri)
+    }
+
+    /**
+     * Forgets tracks whose files are gone (deleted by the user through
+     * MediaStore). The next scan will not bring them back because the files no
+     * longer exist.
+     */
+    suspend fun purgeSongs(ids: List<Long>) = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext
+        db.playlists().removeTracksForSongs(ids)
+        db.favorites().removeAll(ids)
+        db.stats().deleteFor(ids)
+        db.songs().deleteByIds(ids)
+    }
 
     suspend fun createPlaylist(name: String, smartKind: SmartKind? = null): Long = withContext(Dispatchers.IO) {
         db.playlists().insert(

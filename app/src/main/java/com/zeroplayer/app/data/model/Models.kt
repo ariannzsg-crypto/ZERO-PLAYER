@@ -83,6 +83,8 @@ data class Playlist(
     val createdAt: Long,
     val smartKind: SmartKind?,
     val autoArtist: String? = null,
+    /** User picked cover image, stored inside the app's private files directory. */
+    val coverUri: String? = null,
 ) {
     val isSmart: Boolean get() = smartKind != null
 
@@ -111,6 +113,12 @@ fun PlaylistEntity.toModel(count: Int): Playlist = Playlist(
     createdAt = createdAt,
     smartKind = SmartKind.from(smartKind),
     autoArtist = autoArtist,
+    coverUri = coverUri,
 )
 
-data class SongStat(val songId: Long, val playCount: Int, val lastPlayedAt: Long)
+data class SongStat(
+    val songId: Long,
+    val playCount: Int,
+    val lastPlayedAt: Long,
+    val listenedMs: Long = 0L,
+)

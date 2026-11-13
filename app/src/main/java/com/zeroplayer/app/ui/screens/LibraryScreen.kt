@@ -22,9 +22,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.Checklist
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material3.DropdownMenu
@@ -48,6 +51,7 @@ import com.zeroplayer.app.data.LibraryData
 import com.zeroplayer.app.data.model.Song
 import com.zeroplayer.app.playback.PlaybackController
 import com.zeroplayer.app.ui.nav.LocalBottomInset
+import com.zeroplayer.app.ui.components.AddToPlaylistSheet
 import com.zeroplayer.app.ui.components.CoverArt
 import com.zeroplayer.app.ui.components.EmptyState
 import com.zeroplayer.app.ui.components.MicroLabel
@@ -58,6 +62,7 @@ import com.zeroplayer.app.ui.nav.Dest
 import com.zeroplayer.app.ui.nav.LocalNav
 import com.zeroplayer.app.ui.theme.Zero
 import com.zeroplayer.app.ui.albumCountLabel
+import com.zeroplayer.app.ui.formatListenedTime
 import com.zeroplayer.app.ui.songCountLabel
 
 private val TABS = listOf("Songs", "Albums", "Artists", "Folders")
@@ -69,6 +74,9 @@ fun LibraryScreen(library: LibraryData) {
     var sort by remember { mutableStateOf(Graph.prefs.librarySort) }
     var showSortMenu by remember { mutableStateOf(false) }
     var actionSong by remember { mutableStateOf<Song?>(null) }
+    var selectionMode by remember { mutableStateOf(false) }
+    var selection by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var showAddToPlaylist by remember { mutableStateOf(false) }
     val bottomInset = LocalBottomInset.current
 
     val songs = remember(library.songs, sort) { sortSongs(library.songs, sort) }
@@ -128,6 +136,15 @@ fun LibraryScreen(library: LibraryData) {
                     }
                 }
                 ZeroIconButton(
+                    icon = Icons.Rounded.Checklist,
+                    contentDescription = "Select songs",
+                    onClick = {
+                        if (tab != 0) tab = 0
+                        selectionMode = !selectionMode
+                        selection = emptySet()
+                    },
+                )
+                ZeroIconButton(
                     icon = Icons.Rounded.Refresh,
                     contentDescription = "Rescan",
                     onClick = { Graph.music.refresh() },
@@ -153,19 +170,56 @@ fun LibraryScreen(library: LibraryData) {
             }
         }
 
+        if (selectionMode) {
+            item {
+                SelectionBar(
+                    count = selection.size,
+                    onSelectAll = { selection = songs.map { it.id }.toSet() },
+                    onAdd = { if (selection.isNotEmpty()) showAddToPlaylist = true },
+                    onClose = {
+                        selectionMode = false
+                        selection = emptySet()
+                    },
+                )
+            }
+        }
+
         item { Spacer(Modifier.height(10.dp)) }
 
         when (tab) {
             0 -> {
                 itemsIndexed(songs, key = { _, song -> "song_${song.id}" }) { index, song ->
+                    val listened = library.listenedMs(song.id)
                     SongRow(
                         song = song,
                         isPlaying = false,
                         isFavorite = library.isFavorite(song.id),
-                        onClick = { nav.playSongs(songs, index, false) },
+                        onClick = {
+                            if (selectionMode) {
+                                selection = if (song.id in selection) {
+                                    selection - song.id
+                                } else {
+                                    selection + song.id
+                                }
+                            } else {
+                                nav.playSongs(songs, index, false)
+                            }
+                        },
                         onMore = { actionSong = song },
                         leadingIndex = index,
                         showArtwork = false,
+                        selected = song.id in selection,
+                        selectionMode = selectionMode,
+                        onLongClick = {
+                            selectionMode = true
+                            selection = selection + song.id
+                        },
+                        subtitleOverride = if (listened >= 60_000 && !selectionMode) {
+                            "${song.displaySubtitle} · ${formatListenedTime(listened)} heard"
+                        } else {
+                            null
+                        },
+                        modifier = Modifier.animateItem(),
                     )
                 }
                 if (songs.isEmpty()) {
@@ -257,6 +311,79 @@ fun LibraryScreen(library: LibraryData) {
             onDismiss = { actionSong = null },
             onGoToAlbum = { nav.push(Dest.Album(song.albumId, song.album)) },
             onGoToArtist = { nav.push(Dest.Artist(song.artist)) },
+        )
+    }
+
+    if (showAddToPlaylist) {
+        AddToPlaylistSheet(
+            songIds = selection.toList(),
+            library = library,
+            onDismiss = {
+                showAddToPlaylist = false
+                selectionMode = false
+                selection = emptySet()
+            },
+        )
+    }
+}
+
+/** Sticky bar shown while tracks are being multi-selected. */
+@Composable
+private fun SelectionBar(
+    count: Int,
+    onSelectAll: () -> Unit,
+    onAdd: () -> Unit,
+    onClose: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Zero.Surface2)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "$count selected",
+            style = MaterialTheme.typography.titleSmall,
+            color = Zero.Chrome,
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = "Select all",
+            style = MaterialTheme.typography.labelSmall,
+            color = Zero.SilverDim,
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .clickable(onClick = onSelectAll)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+        Spacer(Modifier.weight(1f))
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(Zero.chromeGradient)
+                .clickable(enabled = count > 0, onClick = onAdd)
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.PlaylistAdd,
+                contentDescription = null,
+                tint = Zero.Black,
+                modifier = Modifier.size(15.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text("Add", style = MaterialTheme.typography.labelMedium, color = Zero.Black)
+        }
+        Spacer(Modifier.width(6.dp))
+        ZeroIconButton(
+            icon = Icons.Rounded.Close,
+            contentDescription = "Close selection",
+            size = 32.dp,
+            iconSize = 16.dp,
+            onClick = onClose,
         )
     }
 }

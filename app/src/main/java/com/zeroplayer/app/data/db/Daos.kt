@@ -33,6 +33,9 @@ interface SongDao {
     @Query("DELETE FROM songs WHERE id NOT IN (:keep)")
     suspend fun deleteExcept(keep: List<Long>)
 
+    @Query("DELETE FROM songs WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
+
     @Transaction
     suspend fun insertMissing(items: List<SongEntity>): Int {
         if (items.isEmpty()) return 0
@@ -66,6 +69,9 @@ interface FavoriteDao {
 
     @Query("DELETE FROM favorites WHERE songId NOT IN (SELECT id FROM songs)")
     suspend fun prune()
+
+    @Query("DELETE FROM favorites WHERE songId IN (:ids)")
+    suspend fun removeAll(ids: List<Long>)
 }
 
 @Dao
@@ -87,6 +93,16 @@ interface StatsDao {
 
     @Query("DELETE FROM song_stats WHERE songId NOT IN (SELECT id FROM songs)")
     suspend fun prune()
+
+    @Transaction
+    suspend fun addListening(songId: Long, deltaMs: Long) {
+        if (deltaMs <= 0L) return
+        val existing = get(songId) ?: SongStatEntity(songId)
+        upsert(existing.copy(listenedMs = existing.listenedMs + deltaMs))
+    }
+
+    @Query("DELETE FROM song_stats WHERE songId IN (:ids)")
+    suspend fun deleteFor(ids: List<Long>)
 }
 
 @Dao
@@ -141,6 +157,12 @@ interface PlaylistDao {
 
     @Query("DELETE FROM playlist_tracks WHERE songId NOT IN (SELECT id FROM songs)")
     suspend fun pruneTracks()
+
+    @Query("DELETE FROM playlist_tracks WHERE songId IN (:ids)")
+    suspend fun removeTracksForSongs(ids: List<Long>)
+
+    @Query("UPDATE playlists SET coverUri = :coverUri WHERE id = :id")
+    suspend fun updateCover(id: Long, coverUri: String?)
 
     @Transaction
     suspend fun reorder(playlistId: Long, orderedSongIds: List<Long>) {

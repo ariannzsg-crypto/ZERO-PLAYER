@@ -85,6 +85,18 @@ Add captures to `docs/screenshots/` and they will render here.
 - Drag and drop reordering with a long press
 - Smart playlists: Favorites, Most Played, Recently Played, Recently Added, Unplayed
 - Persistent storage in Room
+- **Playlist covers**: tap the cover on a playlist page to pick an image; it is copied into app
+  storage so it survives restarts, and *Remove cover* falls back to the first track's artwork
+- **Multi-select**: long press a song in the library, tick more, then add them all to a playlist at once
+- **Real listening time**: the player samples the actual playback position and stores it per track
+  ("42m heard"), shown under each song in the library
+- **Delete from device**: every track menu can remove the file through Android's own delete
+  confirmation; playlist entries, favourites and statistics are cleaned up with it
+
+### Motion
+- Five second chrome wordmark intro on launch, dismissed by a single tap
+- Screen changes animate by direction (push, pop, fullscreen), lists animate item placement and
+  every card has a press response
 
 ### Lyrics
 - Reads embedded lyrics from ID3v2 `USLT`, Vorbis comments (`LYRICS`) and MP4 `©lyr`
@@ -307,7 +319,8 @@ artifacts, and publishes a GitHub Release with the release APK whenever a `v*` t
 
 | Version | File | Notes |
 | --- | --- | --- |
-| **1.1.3** | `ZERO-PLAYER-1.1.3-release.apk` | Auto-recovery when the audio pipeline fails, and the real error cause in the log |
+| **1.1.4** | `ZERO-PLAYER-1.1.4-release.apk` | Playlist covers, real listening time per track, delete a song from the device, multi-select add to playlist, five second wordmark intro |
+| 1.1.3 | `ZERO-PLAYER-1.1.3-release.apk` | Auto-recovery when the audio pipeline fails, and the real error cause in the log |
 | 1.1.2 | `ZERO-PLAYER-1.1.2-release.apk` | Playback diagnostics: full log (Settings → Diagnostics, or `adb logcat -s ZeroPlayer`) |
 | 1.1.1 | `ZERO-PLAYER-1.1.1-release.apk` | Fixes queued playback (songs did not start), adds the Gemini assistant |
 | 1.1.0 | `ZERO-PLAYER-1.1.0-release.apk` | AI assist, artist playlists, home screen widget |

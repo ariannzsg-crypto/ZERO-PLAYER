@@ -1,6 +1,8 @@
 package com.zeroplayer.app.ui
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -50,6 +52,8 @@ import com.zeroplayer.app.core.Graph
 import com.zeroplayer.app.playback.PlaybackController
 import com.zeroplayer.app.playback.PlaybackState
 import com.zeroplayer.app.ui.components.MiniPlayer
+import com.zeroplayer.app.ui.components.WordmarkIntro
+import kotlinx.coroutines.delay
 import com.zeroplayer.app.ui.nav.Dest
 import com.zeroplayer.app.ui.nav.LocalBottomInset
 import com.zeroplayer.app.ui.nav.LocalNav
@@ -136,6 +140,13 @@ fun ZeroApp() {
     val bottomBarVisible = !current.isFullscreen
     val bottomInset = if (bottomBarVisible) 150.dp else 0.dp
 
+    // Five second wordmark intro; a tap dismisses it early.
+    var showIntro by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        delay(5_000)
+        showIntro = false
+    }
+
     CompositionLocalProvider(
         LocalNav provides navActions,
         LocalBottomInset provides bottomInset,
@@ -202,6 +213,14 @@ fun ZeroApp() {
                         },
                     )
                 }
+            }
+
+            AnimatedVisibility(
+                visible = showIntro,
+                enter = EnterTransition.None,
+                exit = fadeOut(tween(620)),
+            ) {
+                WordmarkIntro(onSkip = { showIntro = false })
             }
         }
     }

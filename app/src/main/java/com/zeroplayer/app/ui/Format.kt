@@ -25,6 +25,17 @@ fun formatTotalDuration(millis: Long): String {
     }
 }
 
+/** "listened for 12 min" style label built from the tracked milliseconds. */
+fun formatListenedTime(millis: Long): String {
+    val minutes = millis / 60_000
+    return when {
+        minutes >= 60 -> "${minutes / 60}h ${minutes % 60}m"
+        minutes >= 1 -> "${minutes}m"
+        millis >= 5_000 -> "${millis / 1_000}s"
+        else -> "0m"
+    }
+}
+
 fun trackCountLabel(count: Int): String = if (count == 1) "1 track" else "$count tracks"
 
 fun songCountLabel(count: Int): String = if (count == 1) "1 song" else "$count songs"

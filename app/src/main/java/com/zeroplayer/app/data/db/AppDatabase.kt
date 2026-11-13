@@ -17,7 +17,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         EqProfileEntity::class,
         LyricsEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -37,9 +37,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Playlist covers and real listening time per track. */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE playlists ADD COLUMN coverUri TEXT")
+                db.execSQL("ALTER TABLE song_stats ADD COLUMN listenedMs INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "zero-player.db")
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .fallbackToDestructiveMigration()
                 .build()
     }

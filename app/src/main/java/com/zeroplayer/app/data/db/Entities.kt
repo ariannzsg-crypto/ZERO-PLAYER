@@ -32,6 +32,8 @@ data class SongStatEntity(
     @PrimaryKey val songId: Long,
     val playCount: Int = 0,
     val lastPlayedAt: Long = 0L,
+    /** Real accumulated listening time, sampled while the player is running. */
+    val listenedMs: Long = 0L,
 )
 
 @Entity(tableName = "playlists", indices = [Index("autoArtist")])
@@ -43,6 +45,8 @@ data class PlaylistEntity(
     val smartKind: String? = null,
     /** Non-null when the playlist is generated for this artist and kept in sync. */
     val autoArtist: String? = null,
+    /** App-private `file://` URI of a user picked cover, null for the artwork mosaic. */
+    val coverUri: String? = null,
 )
 
 @Entity(
