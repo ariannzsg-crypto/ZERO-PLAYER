@@ -1,6 +1,7 @@
 package com.zeroplayer.app.net.online
 
 import android.net.Uri
+import com.zeroplayer.app.core.DiagLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -129,6 +130,11 @@ class OnlineRepository(private val prefs: OnlinePrefs) {
 
     /** Called from `MainActivity` when `zeroplayer://oauth/...` comes back. */
     fun handleRedirect(uri: Uri) {
+        DiagLog.d(
+            "ONLINE",
+            "redirect received: ${uri.host}/${uri.path?.trimStart('/')} " +
+                "params=${uri.queryParameterNames.sorted()}",
+        )
         scope.launch {
             _state.update { it.copy(loading = true, error = null) }
             val result = runCatching { completeRedirect(uri) }
@@ -219,6 +225,7 @@ class OnlineRepository(private val prefs: OnlinePrefs) {
         }
         scope.launch {
             _state.update { it.copy(loading = true, error = null) }
+            DiagLog.d("ONLINE", "search ${snapshot.provider.key} q=\"${query.take(60)}\"")
             val result = runCatching {
                 when (snapshot.provider) {
                     OnlineProvider.SPOTIFY -> spotify.search(query)
@@ -227,8 +234,14 @@ class OnlineRepository(private val prefs: OnlinePrefs) {
                 }
             }
             result.onSuccess { tracks ->
+                DiagLog.d("ONLINE", "search ${snapshot.provider.key} returned ${tracks.size} results")
                 _state.update { it.copy(loading = false, results = tracks, error = null) }
             }.onFailure { error ->
+                DiagLog.e(
+                    "ONLINE",
+                    "search ${snapshot.provider.key} failed: ${DiagLog.describe(error)}",
+                    error,
+                )
                 _state.update {
                     it.copy(loading = false, results = emptyList(), error = error.message ?: "Search failed.")
                 }
@@ -244,6 +257,7 @@ class OnlineRepository(private val prefs: OnlinePrefs) {
      * own app, because their audio never enters ZERO PLAYER's pipeline.
      */
     fun play(track: OnlineTrack, onExternal: (String) -> Unit) {
+        DiagLog.d("ONLINE", "play ${track.provider.key} ${track.kind} id=${track.id}")
         rememberRecent(track)
         if (track.provider == OnlineProvider.SPOTIFY && track.kind == OnlineKind.TRACK) {
             scope.launch {

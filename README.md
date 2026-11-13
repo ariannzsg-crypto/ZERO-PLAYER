@@ -153,6 +153,10 @@ same black canvas, chrome accents and one unified search field. Each provider is
   translated into readable text (HTML/403 gateway blocks are spelled out instead of dumping markup).
 - **Setup sheet** for the backend URL and the two public client IDs, with a *Check backend* button that
   reports which server-side keys are present.
+- **Request tracing** — every provider call logs its method, host/path, status code and duration under
+  the `SPOTIFY`, `SOUNDCLOUD`, `YOUTUBE` or `BACKEND` scope in Settings → Diagnostics (and
+  `adb logcat -s ZeroPlayer`). Sign-in redirects are logged by parameter *name only*, and token
+  shaped values are masked, so the log stays safe to paste into a bug report.
 
 ### Authentication and secrets
 
