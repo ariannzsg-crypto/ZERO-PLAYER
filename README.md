@@ -157,6 +157,9 @@ same black canvas, chrome accents and one unified search field. Each provider is
   the `SPOTIFY`, `SOUNDCLOUD`, `YOUTUBE` or `BACKEND` scope in Settings → Diagnostics (and
   `adb logcat -s ZeroPlayer`). Sign-in redirects are logged by parameter *name only*, and token
   shaped values are masked, so the log stays safe to paste into a bug report.
+- **Inline diagnostics** — the Online section carries its own collapsible panel: the last provider
+  calls (colour coded per service) and the `/api/health` result with a chip per backend key, so a
+  failed sign-in can be judged without leaving the tab.
 
 ### Authentication and secrets
 

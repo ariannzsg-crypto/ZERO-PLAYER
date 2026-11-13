@@ -100,6 +100,13 @@ class OnlineRepository(private val prefs: OnlinePrefs) {
                     _state.update {
                         it.copy(
                             loading = false,
+                            backendHealth = BackendHealth(
+                                reachable = true,
+                                spotify = status.spotify,
+                                soundcloud = status.soundcloud,
+                                youtube = status.youtube,
+                                checkedAt = System.currentTimeMillis(),
+                            ),
                             notice = if (missing.isEmpty()) {
                                 "Backend reachable and all provider keys are set."
                             } else {
@@ -109,9 +116,22 @@ class OnlineRepository(private val prefs: OnlinePrefs) {
                     }
                 }
                 .onFailure { error ->
+                    DiagLog.e(
+                        "BACKEND",
+                        "health check failed: ${DiagLog.describe(error)}",
+                        error,
+                    )
                     _state.update {
                         it.copy(
                             loading = false,
+                            backendHealth = BackendHealth(
+                                reachable = false,
+                                spotify = false,
+                                soundcloud = false,
+                                youtube = false,
+                                checkedAt = System.currentTimeMillis(),
+                                detail = error.message,
+                            ),
                             error = error.message ?: "The backend did not answer.",
                         )
                     }

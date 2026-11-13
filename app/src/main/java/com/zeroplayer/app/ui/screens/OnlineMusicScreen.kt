@@ -12,8 +12,10 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
@@ -48,6 +50,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -82,11 +86,13 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.zeroplayer.app.core.DiagLog
 import com.zeroplayer.app.core.Graph
 import com.zeroplayer.app.net.online.OnlineKind
 import com.zeroplayer.app.net.online.OnlineProvider
@@ -103,6 +109,9 @@ import com.zeroplayer.app.ui.nav.LocalBottomInset
 import com.zeroplayer.app.ui.nav.LocalNav
 import com.zeroplayer.app.ui.theme.Zero
 import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /* ---------------------------- provider identity ---------------------------- */
 
@@ -186,6 +195,10 @@ fun OnlineMusicScreen() {
                         searchTick++
                     },
                 )
+            }
+
+            item {
+                DiagnosticsSection(state = state, onCheck = repository::checkBackend)
             }
 
             if (state.loading) {
@@ -1080,4 +1093,207 @@ private fun SetupField(label: String, value: String, hint: String, onChange: (St
             )
         }
     }
+}
+
+/* ------------------------------ diagnostics ------------------------------ */
+
+/** Scopes the panel shows: provider traffic plus the backend probe itself. */
+private val TRACE_SCOPES = setOf("SPOTIFY", "SOUNDCLOUD", "YOUTUBE", "BACKEND", "ONLINE")
+
+private val HealthOk = Color(0xFF57D68A)
+
+/**
+ * Inline diagnostics: the last provider calls and the backend probe result, so a
+ * failed sign-in can be read without leaving the Online section. Everything it
+ * shows already lives in [DiagLog]; nothing here re-requests or logs secrets.
+ */
+@Composable
+private fun DiagnosticsSection(state: OnlineState, onCheck: () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    var lines by remember { mutableStateOf<List<String>>(emptyList()) }
+    val health = state.backendHealth
+
+    LaunchedEffect(expanded) {
+        while (expanded) {
+            lines = DiagLog.recent(TRACE_SCOPES, 40)
+            delay(1_500)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Zero.Surface1.copy(alpha = 0.92f))
+            .border(0.8.dp, Zero.Hairline, RoundedCornerShape(18.dp)),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(
+                        when {
+                            health == null -> Zero.TextTertiary
+                            health.reachable -> HealthOk
+                            else -> Zero.Danger
+                        },
+                    ),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text("Diagnostics", style = MaterialTheme.typography.titleSmall, color = Zero.Chrome)
+            Spacer(Modifier.width(10.dp))
+            MicroLabel(
+                text = when {
+                    health == null -> "backend untested"
+                    health.reachable -> "backend reachable"
+                    else -> "backend unreachable"
+                },
+                color = Zero.TextTertiary,
+            )
+            Spacer(Modifier.weight(1f))
+            if (lines.isNotEmpty()) {
+                MicroLabel("${lines.size} lines", color = Zero.TextTertiary)
+                Spacer(Modifier.width(6.dp))
+            }
+            Icon(
+                imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                contentDescription = if (expanded) "Hide diagnostics" else "Show diagnostics",
+                tint = Zero.SilverDim,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(tween(240)) + fadeIn(tween(180)),
+            exit = shrinkVertically(tween(180)) + fadeOut(tween(120)),
+        ) {
+            Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
+                BackendStateBlock(state = state, onCheck = onCheck)
+                Spacer(Modifier.height(12.dp))
+                ZeroDivider()
+                Spacer(Modifier.height(10.dp))
+                MicroLabel("Provider trace", color = Zero.TextTertiary)
+                Spacer(Modifier.height(6.dp))
+                if (lines.isEmpty()) {
+                    Text(
+                        text = "No provider calls yet. Connect a provider or run a search.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Zero.TextTertiary,
+                    )
+                } else {
+                    lines.takeLast(24).forEach { line -> TraceLine(line) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackendStateBlock(state: OnlineState, onCheck: () -> Unit) {
+    val health = state.backendHealth
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = state.backendUrl.ifBlank { "No backend URL set" },
+            style = MaterialTheme.typography.labelSmall,
+            color = Zero.Silver,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = if (health == null) "Check" else "Re-check",
+            style = MaterialTheme.typography.labelSmall,
+            color = Zero.Chrome,
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(Zero.Surface2)
+                .clickable(onClick = onCheck)
+                .padding(horizontal = 10.dp, vertical = 5.dp),
+        )
+    }
+
+    Spacer(Modifier.height(8.dp))
+
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        KeyChip("Spotify", health?.spotify)
+        KeyChip("SoundCloud", health?.soundcloud)
+        KeyChip("YouTube", health?.youtube)
+    }
+
+    val checked = health?.checkedAt
+    if (checked != null) {
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = buildString {
+                append(if (health.reachable) "Backend answered" else "Backend did not answer")
+                append(" · ")
+                append(SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(checked)))
+                health.detail?.let { append(" · ${it.take(120)}") }
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = if (health.reachable) Zero.TextTertiary else Zero.Danger,
+        )
+    } else {
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "Tap Check to probe /api/health and list the keys it holds.",
+            style = MaterialTheme.typography.labelSmall,
+            color = Zero.TextTertiary,
+        )
+    }
+}
+
+@Composable
+private fun KeyChip(label: String, available: Boolean?) {
+    val dot = when (available) {
+        true -> HealthOk
+        false -> Zero.Danger
+        null -> Zero.TextTertiary
+    }
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(Zero.Surface2)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(dot))
+        Spacer(Modifier.width(5.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = Zero.TextSecondary)
+    }
+}
+
+@Composable
+private fun TraceLine(line: String) {
+    val scope = remember(line) {
+        Regex("\\[([A-Za-z]+)]").find(line)?.groupValues?.getOrNull(1).orEmpty()
+    }
+    val color = when (scope) {
+        "SPOTIFY" -> OnlineProvider.SPOTIFY.accent
+        "SOUNDCLOUD" -> OnlineProvider.SOUNDCLOUD.accent
+        "YOUTUBE" -> OnlineProvider.YOUTUBE.accent
+        "BACKEND" -> Zero.TextSecondary
+        else -> Zero.SilverDim
+    }
+    Text(
+        text = line,
+        style = MaterialTheme.typography.labelSmall.copy(
+            fontFamily = FontFamily.Monospace,
+            fontSize = 9.sp,
+        ),
+        color = color,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 1.dp),
+    )
 }

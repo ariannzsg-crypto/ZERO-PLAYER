@@ -42,6 +42,16 @@ data class SpotifyNowPlaying(
     val durationMs: Long,
 )
 
+/** Result of the last `/api/health` probe, shown inline in the diagnostics panel. */
+data class BackendHealth(
+    val reachable: Boolean,
+    val spotify: Boolean,
+    val soundcloud: Boolean,
+    val youtube: Boolean,
+    val checkedAt: Long,
+    val detail: String? = null,
+)
+
 data class ProviderStatus(
     val provider: OnlineProvider,
     val connected: Boolean = false,
@@ -66,6 +76,7 @@ data class OnlineState(
     val spotifyClientId: String = "",
     val soundcloudClientId: String = "",
     val notice: String? = null,
+    val backendHealth: BackendHealth? = null,
 ) {
     val status: ProviderStatus get() = statuses[provider] ?: ProviderStatus(provider)
     val connected: Boolean get() = status.connected

@@ -49,6 +49,21 @@ object DiagLog {
         return "$chain @ $frames"
     }
 
+    /**
+     * Newest-last slice of the buffer restricted to the given scopes, used by
+     * the Online Music diagnostics panel so it can show only provider traffic.
+     */
+    fun recent(scopes: Set<String>, limit: Int = 40): List<String> = synchronized(lines) {
+        if (scopes.isEmpty()) return emptyList()
+        val marker = scopes.map { "[$it] " }
+        lines.asReversed()
+            .asSequence()
+            .filter { line -> marker.any { token -> line.contains(token) } }
+            .take(limit)
+            .toList()
+            .asReversed()
+    }
+
     fun dump(): String = synchronized(lines) {
         if (lines.isEmpty()) "No events yet." else lines.joinToString("\n")
     }
